@@ -53,6 +53,20 @@ class SteamMarket:
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
+    
+    @login_required
+    def fetch_item_orders_histogram(self, item_nameid: str, item_market_url: str, currency: str = Currency.USD) -> dict:
+        url = SteamUrl.COMMUNITY_URL + '/market/itemordershistogram'
+        params = {'country': 'UA',
+                  'language': 'english',
+                  'currency': currency,
+                  'item_nameid': item_nameid,
+                  'two_factor': '0'}
+        self._session.headers.update({'Referer': item_market_url})
+        response = self._session.get(url, params=params)
+        if response.status_code == 429:
+            raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
+        return response.json()
 
     @login_required
     def get_my_market_listings(self) -> dict:
