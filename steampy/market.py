@@ -44,7 +44,7 @@ class SteamMarket:
         return response.json()
 
     @login_required
-    def fetch_price_history(self, item_hash_name: str, game: GameOptions) -> dict:
+    def fetch_price_history_old(self, item_hash_name: str, game: GameOptions) -> dict:
         url = SteamUrl.COMMUNITY_URL + '/market/pricehistory/'
         params = {'country': 'PL',
                   'appid': game.app_id,
@@ -53,6 +53,21 @@ class SteamMarket:
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
+
+    @login_required
+    def fetch_price_history(self, item_market_url: str, game: GameOptions) -> list:
+        url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
+        response = self._session.get(url)
+        if response.status_code == 429:
+            raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
+        data_string = ""
+        if 'var line1=' in response.text:
+            data_string = text_between(response.text, 'var line1=', 'g_timePriceHistoryEarliest = new Date();')
+        else:
+            return []
+        data_string = data_string[:data_string.find(';')]
+        data_string = ast.literal_eval(data_string)
+        return data_string
     
     @login_required
     def fetch_item_orders_histogram(self, item_nameid: str, item_market_url: str, currency: str = Currency.USD) -> dict:
