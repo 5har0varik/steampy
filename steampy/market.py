@@ -1,5 +1,6 @@
 import urllib.parse
 import json
+import ast
 
 from decimal import Decimal
 from requests import Session
