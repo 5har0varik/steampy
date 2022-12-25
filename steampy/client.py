@@ -29,9 +29,10 @@ def login_required(func):
 
 
 class SteamClient:
-    def __init__(self, api_key: str, username: str = None, password: str = None, steam_guard:str = None) -> None:
+    def __init__(self, api_key: str, username: str = None, password: str = None, steam_guard:str = None, ua_header:dict = None) -> None:
         self._api_key = api_key
         self._session = requests.Session()
+        self._session.headers.update(ua_header)
         self.steam_guard = steam_guard
         self.was_login_executed = False
         self.username = username
