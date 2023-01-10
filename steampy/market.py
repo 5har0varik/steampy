@@ -65,10 +65,10 @@ class SteamMarket:
         if 'var line1=' in response.text:
             data_string = text_between(response.text, 'var line1=', 'g_timePriceHistoryEarliest = new Date();')
         else:
-            return []
+            return [], False
         data_string = data_string[:data_string.find(';')]
         data_string = ast.literal_eval(data_string)
-        return data_string
+        return data_string, "( Not Usable in Crafting )" in response.text
     
     @login_required
     def fetch_item_orders_histogram(self, item_nameid: str, item_market_url: str, currency: str = Currency.USD) -> dict:
