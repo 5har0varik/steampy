@@ -75,7 +75,7 @@ class SteamMarket:
         url = SteamUrl.COMMUNITY_URL + '/market/itemordershistogram'
         params = {'country': 'UA',
                   'language': 'english',
-                  'currency': currency,
+                  'currency': currency.value,
                   'item_nameid': item_nameid,
                   'two_factor': '0'}
         self._session.headers.update({'Referer': item_market_url})
