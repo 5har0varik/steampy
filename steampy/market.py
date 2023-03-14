@@ -32,6 +32,31 @@ class SteamMarket:
         self._steam_guard = steamguard
         self._session_id = session_id
         self.was_login_executed = True
+        
+    def _safe_get(self, url, params):
+        for i in range(100):
+            try:
+                response = self._session.get(url, params=params)
+                response.raise_for_status()
+            except requests.exceptions.HTTPError as errh:
+                print("Steampy Http Error:", errh)
+                continue
+            except requests.exceptions.ConnectionError as errc:
+                print("Steampy Error Connecting:", errc)
+                continue
+            except requests.exceptions.Timeout as errt:
+                print("Steampy Timeout Error:", errt)
+                continue
+            except requests.exceptions.SSLError as errs:
+                print("Steampy SSL Error:", errs)
+                continue
+            break
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError as errj:
+            print("Steampy JSON Error:", errj)
+            response = type('obj', (object,), {'status_code' : None, 'text' : None})
+        return response
 
     def fetch_price(self, item_hash_name: str, game: GameOptions, currency: str = Currency.USD) -> dict:
         url = SteamUrl.COMMUNITY_URL + '/market/priceoverview/'
@@ -79,7 +104,7 @@ class SteamMarket:
                   'item_nameid': item_nameid,
                   'two_factor': '0'}
         self._session.headers.update({'Referer': item_market_url})
-        response = self._session.get(url, params=params)
+        response = self._safe_get(url, params=params)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
