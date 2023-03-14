@@ -3,7 +3,7 @@ import json
 import ast
 
 from decimal import Decimal
-from requests import Session
+from requests import Session, exceptions
 from steampy.confirmation import ConfirmationExecutor
 from steampy.exceptions import ApiException, TooManyRequests, LoginRequired
 from steampy.models import Currency, SteamUrl, GameOptions
@@ -38,22 +38,22 @@ class SteamMarket:
             try:
                 response = self._session.get(url, params=params)
                 response.raise_for_status()
-            except requests.exceptions.HTTPError as errh:
+            except exceptions.HTTPError as errh:
                 print("Steampy Http Error:", errh)
                 continue
-            except requests.exceptions.ConnectionError as errc:
+            except exceptions.ConnectionError as errc:
                 print("Steampy Error Connecting:", errc)
                 continue
-            except requests.exceptions.Timeout as errt:
+            except exceptions.Timeout as errt:
                 print("Steampy Timeout Error:", errt)
                 continue
-            except requests.exceptions.SSLError as errs:
+            except exceptions.SSLError as errs:
                 print("Steampy SSL Error:", errs)
                 continue
             break
         try:
             data = response.json()
-        except requests.exceptions.JSONDecodeError as errj:
+        except exceptions.JSONDecodeError as errj:
             print("Steampy JSON Error:", errj)
             response = type('obj', (object,), {'status_code' : None, 'text' : None})
         return response
