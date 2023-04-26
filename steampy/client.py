@@ -6,6 +6,9 @@ from typing import List, Union
 
 import json
 import requests
+import time
+
+from requests import Session, exceptions
 from steampy import guard
 from steampy.chat import SteamChat
 from steampy.confirmation import ConfirmationExecutor
@@ -39,6 +42,39 @@ class SteamClient:
         self._password = password
         self.market = SteamMarket(self._session)
         self.chat = SteamChat(self._session)
+
+    def _safe_get(self, url, params):
+        response = type('obj', (object,), {'status_code' : None, 'text' : None})
+        pause_time = 0
+        for i in range(100):
+            try:
+                response = self._session.get(url, params=params)
+                pause_time += 1
+                response.raise_for_status()
+            except exceptions.HTTPError as errh:
+                print("Steampy Http Error:", errh)
+                time.sleep(pause_time)
+                continue
+            except exceptions.ConnectionError as errc:
+                print("Steampy Error Connecting:", errc)
+                time.sleep(pause_time)
+                continue
+            except exceptions.Timeout as errt:
+                print("Steampy Timeout Error:", errt)
+                time.sleep(pause_time)
+                continue
+            except exceptions.SSLError as errs:
+                print("Steampy SSL Error:", errs)
+                time.sleep(pause_time)
+                continue
+            break
+        try:
+            data = response.json()
+        except exceptions.JSONDecodeError as errj:
+            print("Steampy JSON Error:", errj)
+            time.sleep(1)
+            response = type('obj', (object,), {'status_code' : None, 'text' : None})
+        return response
 
     def login(self, username: str, password: str, steam_guard: str) -> None:
         self.steam_guard = guard.load_steam_guard(steam_guard)
@@ -99,8 +135,8 @@ class SteamClient:
         url = '/'.join([SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id])
         params = {'l': 'english',
                   'count': count}
-        response_dict = self._session.get(url, params=params).json()
-        if response_dict['success'] != 1:
+        response_dict = self._safe_get(url, params=params).json()
+        if response_dict is None or response_dict.get('success') != 1:
             raise ApiException('Success value should be 1.')
         if merge:
             return merge_items_with_descriptions_from_inventory(response_dict, game)

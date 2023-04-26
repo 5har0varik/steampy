@@ -1,6 +1,7 @@
 import urllib.parse
 import json
 import ast
+import time
 
 from decimal import Decimal
 from requests import Session, exceptions
@@ -34,27 +35,35 @@ class SteamMarket:
         self.was_login_executed = True
         
     def _safe_get(self, url, params):
+        response = type('obj', (object,), {'status_code' : None, 'text' : None})
+        pause_time = 0
         for i in range(100):
             try:
                 response = self._session.get(url, params=params)
+                pause_time += 1
                 response.raise_for_status()
             except exceptions.HTTPError as errh:
                 print("Steampy Http Error:", errh)
+                time.sleep(pause_time)
                 continue
             except exceptions.ConnectionError as errc:
                 print("Steampy Error Connecting:", errc)
+                time.sleep(pause_time)
                 continue
             except exceptions.Timeout as errt:
                 print("Steampy Timeout Error:", errt)
+                time.sleep(pause_time)
                 continue
             except exceptions.SSLError as errs:
                 print("Steampy SSL Error:", errs)
+                time.sleep(pause_time)
                 continue
             break
         try:
             data = response.json()
         except exceptions.JSONDecodeError as errj:
             print("Steampy JSON Error:", errj)
+            time.sleep(1)
             response = type('obj', (object,), {'status_code' : None, 'text' : None})
         return response
 
