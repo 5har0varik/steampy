@@ -279,6 +279,11 @@ class SteamClient:
         response = self._session.post(url, data=params, headers=headers).json()
         if response.get('needs_mobile_confirmation'):
             response.update(self._confirm_transaction(response['tradeofferid']))
+            while response["response"]["offer"]["trade_offer_state"] == 9:
+                print(response)
+                print("Waiting mobile confirmation")
+                time.sleep(5)
+                response.update(self._confirm_transaction(response['tradeofferid']))
         return response
 
     def get_profile(self, steam_id: str) -> dict:

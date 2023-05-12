@@ -90,7 +90,7 @@ class SteamMarket:
         return response.json()
 
     @login_required
-    def fetch_price_history(self, item_market_url: str, game: GameOptions) -> list:
+    def fetch_price_history(self, item_market_url: str, game: GameOptions) -> tuple:
         url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
         response = self._session.get(url)
         if response.status_code == 429:
