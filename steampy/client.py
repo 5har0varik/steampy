@@ -362,9 +362,12 @@ class SteamClient:
     @login_required
     def get_wallet_balance(self, convert_to_decimal: bool = True) -> Union[str, decimal.Decimal]:
         url = SteamUrl.STORE_URL + '/account/history/'
-        response = self._session.get(url)
+        response = self._session.get("%s/market" % SteamUrl.COMMUNITY_URL)
         response_soup = bs4.BeautifulSoup(response.text, "html.parser")
-        balance = response_soup.find(id='header_wallet_balance').string
+        balance = response_soup.find(class_="responsive_menu_user_wallet")
+        balance = balance.b.text.strip().translate(str.maketrans('', '', '()'))
+        balance = balance.replace(',', '.')
+        balance = balance.replace(' ','')[:-2]
         if convert_to_decimal:
             return parse_price(balance)
         else:
