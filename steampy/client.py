@@ -16,6 +16,7 @@ from steampy.exceptions import SevenDaysHoldException, LoginRequired, ApiExcepti
 from steampy.login import LoginExecutor, InvalidCredentials
 from steampy.market import SteamMarket
 from steampy.models import Asset, TradeOfferState, SteamUrl, GameOptions
+from steampy.proxy import Proxy
 from steampy.utils import text_between, texts_between, merge_items_with_descriptions_from_inventory, \
     steam_id_to_account_id, merge_items_with_descriptions_from_offers, get_description_key, \
     merge_items_with_descriptions_from_offer, account_id_to_steam_id, get_key_value_from_url, parse_price
@@ -32,7 +33,7 @@ def login_required(func):
 
 
 class SteamClient:
-    def __init__(self, api_key: str, username: str = None, password: str = None, steam_guard:str = None, ua_header:dict = None) -> None:
+    def __init__(self, api_key: str, username: str = None, password: str = None, steam_guard:str = None, ua_header:dict = None, proxy_setting_file:str = None) -> None:
         self._api_key = api_key
         self._session = requests.Session()
         self._session.headers.update(ua_header)
@@ -42,13 +43,19 @@ class SteamClient:
         self._password = password
         self.market = SteamMarket(self._session)
         self.chat = SteamChat(self._session)
+        self.proxy = Proxy(proxy_setting_file)
 
-    def _safe_get(self, url, params):
-        response = type('obj', (object,), {'status_code' : None, 'text' : None})
+    def _safe_get(self, url, params, use_proxy=False):
+        response = type('obj', (object,), {'status_code': None, 'text': None})
         pause_time = 0
         for i in range(100):
+            if use_proxy:
+                proxy = self.proxy.get_proxy()
+            else:
+                proxy = {}
+            print(proxy)
             try:
-                response = self._session.get(url, params=params)
+                response = self._session.get(url, params=params, proxies=proxy)
                 pause_time += 1
                 response.raise_for_status()
             except exceptions.HTTPError as errh:
@@ -73,7 +80,7 @@ class SteamClient:
         except exceptions.JSONDecodeError as errj:
             print("Steampy JSON Error:", errj)
             time.sleep(1)
-            response = type('obj', (object,), {'status_code' : None, 'text' : None})
+            response = type('obj', (object,), {'status_code': None, 'text': None})
         return response
 
     def login(self, username: str, password: str, steam_guard: str) -> None:
@@ -126,16 +133,16 @@ class SteamClient:
         return msg in response.text
 
     @login_required
-    def get_my_inventory(self, game: GameOptions, merge: bool = True, count: int = 5000) -> dict:
+    def get_my_inventory(self, game: GameOptions, merge: bool = True, count: int = 5000, use_proxy=False) -> dict:
         steam_id = self.steam_guard['steamid']
-        return self.get_partner_inventory(steam_id, game, merge, count)
+        return self.get_partner_inventory(steam_id, game, merge, count, use_proxy)
 
     @login_required
-    def get_partner_inventory(self, partner_steam_id: str, game: GameOptions, merge: bool = True, count: int = 5000) -> dict:
+    def get_partner_inventory(self, partner_steam_id: str, game: GameOptions, merge: bool = True, count: int = 5000, use_proxy=False) -> dict:
         url = '/'.join([SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id])
         params = {'l': 'english',
                   'count': count}
-        response_dict = self._safe_get(url, params=params).json()
+        response_dict = self._safe_get(url, params=params, use_proxy=use_proxy).json()
         if response_dict is None or response_dict.get('success') != 1:
             raise ApiException('Success value should be 1.')
         if merge:
