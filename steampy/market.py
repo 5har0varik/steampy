@@ -193,6 +193,13 @@ class SteamMarket:
         response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/createbuyorder/", data,
                                       headers=headers).json()
         if response.get("success") != 1:
+            attempts = 5
+            while response.get("success") != 1 or attempts > 0:
+                attempts -= 1
+                time.sleep(5)
+                response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/createbuyorder/", data,
+                                              headers=headers).json()
+        if response.get("success") != 1:
             raise ApiException("There was a problem creating the order. Are you using the right currency? success: %s"
                                % response.get("success"))
         return response
@@ -238,6 +245,13 @@ class SteamMarket:
         }
         headers = {"Referer": SteamUrl.COMMUNITY_URL + "/market"}
         response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/cancelbuyorder/", data, headers=headers).json()
+        if response.get("success") != 1:
+            attempts = 5
+            while response.get("success") != 1 or attempts > 0:
+                attempts -= 1
+                time.sleep(5)
+                response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/cancelbuyorder/", data,
+                                              headers=headers).json()
         if response.get("success") != 1:
             raise ApiException("There was a problem canceling the order. success: %s" % response.get("success"))
         return response

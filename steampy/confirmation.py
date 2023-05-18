@@ -33,6 +33,44 @@ class ConfirmationExecutor:
         self._identity_secret = identity_secret
         self._session = session
 
+    def _safe_get(self, url, params, use_proxy=False):
+        response = type('obj', (object,), {'status_code': None, 'text': None})
+        pause_time = 0
+        for i in range(100):
+            if use_proxy:
+                proxy = {}  #self.proxy.get_proxy()
+            else:
+                proxy = {}
+            print(proxy)
+            try:
+                response = self._session.get(url, params=params, proxies=proxy)
+                pause_time += 1
+                response.raise_for_status()
+            except requests.exceptions.HTTPError as errh:
+                print("Steampy Http Error:", errh)
+                time.sleep(pause_time)
+                continue
+            except requests.exceptions.ConnectionError as errc:
+                print("Steampy Error Connecting:", errc)
+                time.sleep(pause_time)
+                continue
+            except requests.exceptions.Timeout as errt:
+                print("Steampy Timeout Error:", errt)
+                time.sleep(pause_time)
+                continue
+            except requests.exceptions.SSLError as errs:
+                print("Steampy SSL Error:", errs)
+                time.sleep(pause_time)
+                continue
+            break
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError as errj:
+            print("Steampy JSON Error:", errj)
+            time.sleep(1)
+            response = type('obj', (object,), {'status_code': None, 'text': None})
+        return response
+
     def send_trade_allow_request(self, trade_offer_id: str) -> dict:
         confirmations = self._get_confirmations()
         confirmation = self._select_trade_offer_confirmation(confirmations, trade_offer_id)
@@ -50,7 +88,7 @@ class ConfirmationExecutor:
         params['cid'] = confirmation.data_confid
         params['ck'] = confirmation.data_key
         headers = {'X-Requested-With': 'XMLHttpRequest'}
-        return self._session.get(self.CONF_URL + '/ajaxop', params=params, headers=headers).json()
+        return self._safe_get(self.CONF_URL + '/ajaxop', params=params, headers=headers).json()
 
     def _get_confirmations(self) -> List[Confirmation]:
         confirmations = []
@@ -69,7 +107,7 @@ class ConfirmationExecutor:
         tag = Tag.CONF.value
         params = self._create_confirmation_params(tag)
         headers = {'X-Requested-With': 'com.valvesoftware.android.steam.community'}
-        response = self._session.get(self.CONF_URL + '/conf', params=params, headers=headers)
+        response = self._safe_get(self.CONF_URL + '/conf', params=params, headers=headers)
         if 'Steam Guard Mobile Authenticator is providing incorrect Steam Guard codes.' in response.text:
             raise InvalidCredentials('Invalid Steam Guard file')
         return response
@@ -77,7 +115,7 @@ class ConfirmationExecutor:
     def _fetch_confirmation_details_page(self, confirmation: Confirmation) -> str:
         tag = 'details' + confirmation.id
         params = self._create_confirmation_params(tag)
-        response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
+        response = self._safe_get(self.CONF_URL + '/details/' + confirmation.id, params=params)
         return response.json()['html']
 
     def _create_confirmation_params(self, tag_string: str) -> dict:
@@ -97,6 +135,12 @@ class ConfirmationExecutor:
             confirmation_id = self._get_confirmation_trade_offer_id(confirmation_details_page)
             if confirmation_id == trade_offer_id:
                 return confirmation
+            else:
+                time.sleep(5)
+                confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
+                confirmation_id = self._get_confirmation_trade_offer_id(confirmation_details_page)
+                if confirmation_id == trade_offer_id:
+                    return confirmation
         raise ConfirmationExpected
 
     def _select_sell_listing_confirmation(self, confirmations: List[Confirmation], asset_id: str) -> Confirmation:
@@ -105,6 +149,12 @@ class ConfirmationExecutor:
             confirmation_id = self._get_confirmation_sell_listing_id(confirmation_details_page)
             if confirmation_id == asset_id:
                 return confirmation
+            else:
+                time.sleep(5)
+                confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
+                confirmation_id = self._get_confirmation_sell_listing_id(confirmation_details_page)
+                if confirmation_id == asset_id:
+                    return confirmation
         raise ConfirmationExpected
 
     @staticmethod
