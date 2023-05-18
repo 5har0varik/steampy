@@ -33,7 +33,7 @@ class ConfirmationExecutor:
         self._identity_secret = identity_secret
         self._session = session
 
-    def _safe_get(self, url, params, use_proxy=False):
+    def _safe_get(self, url, params, headers="", use_proxy=False):
         response = type('obj', (object,), {'status_code': None, 'text': None})
         pause_time = 0
         for i in range(100):
@@ -43,7 +43,7 @@ class ConfirmationExecutor:
                 proxy = {}
             print(proxy)
             try:
-                response = self._session.get(url, params=params, proxies=proxy)
+                response = self._session.get(url, params=params, headers=headers, proxies=proxy)
                 pause_time += 1
                 response.raise_for_status()
             except requests.exceptions.HTTPError as errh:
