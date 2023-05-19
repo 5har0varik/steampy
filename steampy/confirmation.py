@@ -33,7 +33,7 @@ class ConfirmationExecutor:
         self._identity_secret = identity_secret
         self._session = session
 
-    def _safe_get(self, url, params, headers="", use_proxy=False):
+    def _safe_get(self, url, params, headers, use_proxy=False):
         response = type('obj', (object,), {'status_code': None, 'text': None})
         pause_time = 0
         for i in range(100):
