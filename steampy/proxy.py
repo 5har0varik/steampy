@@ -19,7 +19,7 @@ class Proxy:
                     self.proxy_list.append({"https": "socks5://" + item['username'] + ':' + item['password'] + '@' + item['proxy_address'] + ':' + str(item['port'])})
         self.proxy_list_iter = cycle(self.proxy_list)
         self.address_calls = 0
-        self.address_calls_max = 10
+        self.address_calls_max = 9
         self.current_proxy = next(self.proxy_list_iter)
 
     def get_proxy(self):
