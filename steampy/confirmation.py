@@ -115,7 +115,18 @@ class ConfirmationExecutor:
     def _fetch_confirmation_details_page(self, confirmation: Confirmation) -> str:
         tag = 'details' + confirmation.id
         params = self._create_confirmation_params(tag)
-        response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
+        attempts = 5
+        while attempts:
+            response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
+            try:
+                data = response.json()
+            except requests.exceptions.JSONDecodeError as errj:
+                print("No json in confirmation")
+                attempts -= 1
+                continue
+            if 'html' not in data:
+                print("No html key in data")
+                attempts -= 1
         return response.json()['html']
 
     def _create_confirmation_params(self, tag_string: str) -> dict:

@@ -238,6 +238,16 @@ class SteamMarket:
             raise ApiException("There was a problem removing the listing. http code: %s" % response.status_code)
 
     @login_required
+    def get_sell_order(self, sell_listing_id: str) -> dict:
+        data = {"sessionid": self._session_id}
+        headers = {'Referer': SteamUrl.COMMUNITY_URL + "/market/"}
+        url = "%s/market/getbuyorderstatus/?sessionid=%s&buy_orderid=%s" % (SteamUrl.COMMUNITY_URL, self._session_id, sell_listing_id)
+        response = self._session.post(url, data=data, headers=headers)
+        if response.status_code != 200:
+            raise ApiException("There was a problem removing the listing. http code: %s" % response.status_code)
+        return response.json()
+
+    @login_required
     def cancel_buy_order(self, buy_order_id) -> dict:
         data = {
             "sessionid": self._session_id,
