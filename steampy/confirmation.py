@@ -126,6 +126,7 @@ class ConfirmationExecutor:
                 continue
             if 'html' not in data:
                 print("No html key in data")
+                print(response.json())
                 attempts -= 1
             time.sleep(5)
         return response.json()['html']
