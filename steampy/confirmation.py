@@ -127,6 +127,7 @@ class ConfirmationExecutor:
             if 'html' not in data:
                 print("No html key in data")
                 attempts -= 1
+            time.sleep(5)
         return response.json()['html']
 
     def _create_confirmation_params(self, tag_string: str) -> dict:
