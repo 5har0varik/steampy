@@ -112,24 +112,11 @@ class ConfirmationExecutor:
             raise InvalidCredentials('Invalid Steam Guard file')
         return response
 
-    def _fetch_confirmation_details_page(self, confirmation: Confirmation) -> str:
+    def _fetch_confirmation_details_page(self, confirmation: Confirmation) -> dict:
         tag = 'details' + confirmation.id
-        attempts = 5
-        while attempts:
-            params = self._create_confirmation_params(tag)
-            response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
-            try:
-                data = response.json()
-            except requests.exceptions.JSONDecodeError as errj:
-                print("No json in confirmation")
-                attempts -= 1
-                continue
-            if 'html' not in data:
-                print("No html key in data")
-                print(response.json())
-                attempts -= 1
-            time.sleep(5)
-        return response.json()['html']
+        params = self._create_confirmation_params(tag)
+        response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
+        return response.json()
 
     def _create_confirmation_params(self, tag_string: str) -> dict:
         timestamp = int(time.time())
@@ -144,30 +131,42 @@ class ConfirmationExecutor:
 
     def _select_trade_offer_confirmation(self, confirmations: List[Confirmation], trade_offer_id: str) -> Confirmation:
         for confirmation in confirmations:
-            confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
+            attempts = 5
+            while attempts:
+                confirmation_details_page_json = self._fetch_confirmation_details_page(confirmation)
+                if confirmation_details_page_json['success']:
+                    break
+                attempts -= 1
+                time.sleep(5)
+            if not confirmation_details_page_json['success']:
+                raise ConfirmationExpected
+            confirmation_details_page = confirmation_details_page_json['html']
             confirmation_id = self._get_confirmation_trade_offer_id(confirmation_details_page)
             if confirmation_id == trade_offer_id:
                 return confirmation
-            else:
-                time.sleep(5)
-                confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
-                confirmation_id = self._get_confirmation_trade_offer_id(confirmation_details_page)
-                if confirmation_id == trade_offer_id:
-                    return confirmation
+            # else:
+            #     time.sleep(5)
+            #     confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
+            #     confirmation_id = self._get_confirmation_trade_offer_id(confirmation_details_page)
+            #     if confirmation_id == trade_offer_id:
+            #         return confirmation
         raise ConfirmationExpected
 
     def _select_sell_listing_confirmation(self, confirmations: List[Confirmation], asset_id: str) -> Confirmation:
         for confirmation in confirmations:
-            confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
+            confirmation_details_page_json = self._fetch_confirmation_details_page(confirmation)
+            if not confirmation_details_page_json['success']:
+                confirmation_details_page_json = self._fetch_confirmation_details_page(confirmation)
+            confirmation_details_page = confirmation_details_page_json['html']
             confirmation_id = self._get_confirmation_sell_listing_id(confirmation_details_page)
             if confirmation_id == asset_id:
                 return confirmation
-            else:
-                time.sleep(5)
-                confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
-                confirmation_id = self._get_confirmation_sell_listing_id(confirmation_details_page)
-                if confirmation_id == asset_id:
-                    return confirmation
+            # else:
+            #     time.sleep(5)
+            #     confirmation_details_page = self._fetch_confirmation_details_page(confirmation)
+            #     confirmation_id = self._get_confirmation_sell_listing_id(confirmation_details_page)
+            #     if confirmation_id == asset_id:
+            #         return confirmation
         raise ConfirmationExpected
 
     @staticmethod
