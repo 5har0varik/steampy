@@ -114,9 +114,9 @@ class ConfirmationExecutor:
 
     def _fetch_confirmation_details_page(self, confirmation: Confirmation) -> str:
         tag = 'details' + confirmation.id
-        params = self._create_confirmation_params(tag)
         attempts = 5
         while attempts:
+            params = self._create_confirmation_params(tag)
             response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
             try:
                 data = response.json()
