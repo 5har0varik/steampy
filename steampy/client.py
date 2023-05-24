@@ -78,13 +78,14 @@ class SteamClient:
                 print("Steampy SSL Error:", errs)
                 time.sleep(pause_time)
                 continue
-            break
-        try:
-            data = response.json()
-        except exceptions.JSONDecodeError as errj:
-            print("Steampy JSON Error:", errj)
-            time.sleep(1)
-            response = type('obj', (object,), {'status_code': None, 'text': None})
+            try:
+                data = response.json()
+            except exceptions.JSONDecodeError as errj:
+                print("Steampy JSON Error:", errj)
+                time.sleep(pause_time)
+                continue
+            return response
+        response = type('obj', (object,), {'status_code': None, 'text': None})
         return response
 
     def login(self, username: str, password: str, steam_guard: str) -> None:
