@@ -45,7 +45,7 @@ class SteamClient:
         self.chat = SteamChat(self._session)
         self.proxy = Proxy(proxy_setting_file)
 
-    def _safe_get(self, url, params=None, headers=None, use_proxy=False):
+    def _safe_get(self, url, params=None, headers=None, use_proxy=False, is_json=True):
         if headers is None:
             headers = {}
         if params is None:
@@ -78,12 +78,13 @@ class SteamClient:
                 print("Steampy SSL Error:", errs)
                 time.sleep(pause_time)
                 continue
-            try:
-                data = response.json()
-            except exceptions.JSONDecodeError as errj:
-                print("Steampy JSON Error:", errj)
-                time.sleep(pause_time)
-                continue
+            if is_json:
+                try:
+                    data = response.json()
+                except exceptions.JSONDecodeError as errj:
+                    print("Steampy JSON Error:", errj)
+                    time.sleep(pause_time)
+                    continue
             return response
         response = type('obj', (object,), {'status_code': None, 'text': None})
         return response
@@ -220,7 +221,7 @@ class SteamClient:
 
     @login_required
     def get_trade_receipt(self, trade_id: str) -> list:
-        html = self._safe_get("https://steamcommunity.com/trade/{}/receipt".format(trade_id)).content.decode()
+        html = self._safe_get("https://steamcommunity.com/trade/{}/receipt".format(trade_id), is_json=False).content.decode()
         items = []
         for item in texts_between(html, "oItem = ", ";\r\n\toItem"):
             items.append(json.loads(item))
@@ -249,7 +250,7 @@ class SteamClient:
 
     def _fetch_trade_partner_id(self, trade_offer_id: str) -> str:
         url = self._get_trade_offer_url(trade_offer_id)
-        offer_response_text = self._safe_get(url).text
+        offer_response_text = self._safe_get(url, is_json=False).text
         if 'You have logged in from a new device. In order to protect the items' in offer_response_text:
             raise SevenDaysHoldException("Account has logged in a new device and can't trade for 7 days")
         return text_between(offer_response_text, "var g_ulTradePartnerSteamID = '", "';")
@@ -335,7 +336,7 @@ class SteamClient:
     def get_escrow_duration(self, trade_offer_url: str) -> int:
         headers = {'Referer': SteamUrl.COMMUNITY_URL + urlparse.urlparse(trade_offer_url).path,
                    'Origin': SteamUrl.COMMUNITY_URL}
-        response = self._safe_get(trade_offer_url, headers=headers).text
+        response = self._safe_get(trade_offer_url, headers=headers, is_json=False).text
         my_escrow_duration = int(text_between(response, "var g_daysMyEscrow = ", ";"))
         their_escrow_duration = int(text_between(response, "var g_daysTheirEscrow = ", ";"))
         return max(my_escrow_duration, their_escrow_duration)
@@ -374,7 +375,7 @@ class SteamClient:
     @login_required
     def get_wallet_balance(self, convert_to_decimal: bool = True) -> Union[str, decimal.Decimal]:
         url = SteamUrl.STORE_URL + '/account/history/'
-        response = self._safe_get("%s/market" % SteamUrl.COMMUNITY_URL)
+        response = self._safe_get("%s/market" % SteamUrl.COMMUNITY_URL, is_json=False)
         response_soup = bs4.BeautifulSoup(response.text, "html.parser")
         balance = response_soup.find(class_="responsive_menu_user_wallet")
         balance = balance.b.text.strip().translate(str.maketrans('', '', '()'))
