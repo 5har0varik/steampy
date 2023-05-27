@@ -167,7 +167,7 @@ class SteamClient:
             print("Steampy JSON Error:", errj)
             raise ApiException('No json in response')
         response_dict = response.json()
-        if response_dict.status_code == requests.codes.TOO_MANY_REQUESTS:
+        if response.status_code == requests.codes.TOO_MANY_REQUESTS:
             print("Banned")
             return None
         if response_dict is None or response_dict.get('success') != 1:
