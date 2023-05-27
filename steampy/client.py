@@ -2,7 +2,7 @@ import decimal
 
 import bs4
 import urllib.parse as urlparse
-from typing import List, Union
+from typing import List, Union, Any
 
 import json
 import requests
@@ -46,13 +46,22 @@ class SteamClient:
         self.proxy = Proxy(proxy_setting_file)
 
     def _safe_get(self, url, params=None, headers=None, use_proxy=False, is_json=True):
+        class MockResponse:
+            def __init__(self, json_data, status_code):
+                self.json_data = json_data
+                self.status_code = status_code
+
+            def json(self):
+                return self.json_data
+
+        repeats = 10
         if headers is None:
             headers = {}
         if params is None:
             params = {}
         response = type('obj', (object,), {'status_code': None, 'text': None})
         pause_time = 0
-        for i in range(100):
+        for i in range(repeats):
             if use_proxy:
                 proxy = self.proxy.get_proxy()
             else:
@@ -64,6 +73,9 @@ class SteamClient:
                 response.raise_for_status()
             except exceptions.HTTPError as errh:
                 print("Steampy Http Error:", errh)
+                if errh.response.status_code == requests.codes.TOO_MANY_REQUESTS:
+                    response = MockResponse({"status_code": errh.response.status_code}, errh.response.status_code)
+                    return response
                 time.sleep(pause_time)
                 continue
             except exceptions.ConnectionError as errc:
@@ -86,7 +98,7 @@ class SteamClient:
                     time.sleep(pause_time)
                     continue
             return response
-        response = type('obj', (object,), {'status_code': None, 'text': None})
+        response = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
         return response
 
     def login(self, username: str, password: str, steam_guard: str) -> None:
@@ -144,11 +156,20 @@ class SteamClient:
         return self.get_partner_inventory(steam_id, game, merge, count, use_proxy)
 
     @login_required
-    def get_partner_inventory(self, partner_steam_id: str, game: GameOptions, merge: bool = True, count: int = 5000, use_proxy=False) -> dict:
+    def get_partner_inventory(self, partner_steam_id: str, game: GameOptions, merge: bool = True, count: int = 5000, use_proxy=False) -> dict | None | Any:
         url = '/'.join([SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id])
         params = {'l': 'english',
                   'count': count}
-        response_dict = self._safe_get(url, params=params, use_proxy=use_proxy).json()
+        response = self._safe_get(url, params=params, use_proxy=use_proxy)
+        try:
+            data = response.json()
+        except exceptions.JSONDecodeError as errj:
+            print("Steampy JSON Error:", errj)
+            raise ApiException('No json in response')
+        response_dict = response.json()
+        if response_dict.status_code == requests.codes.TOO_MANY_REQUESTS:
+            print("Banned")
+            return None
         if response_dict is None or response_dict.get('success') != 1:
             raise ApiException('Success value should be 1.')
         if merge:
