@@ -154,9 +154,15 @@ class ConfirmationExecutor:
 
     def _select_sell_listing_confirmation(self, confirmations: List[Confirmation], asset_id: str) -> Confirmation:
         for confirmation in confirmations:
-            confirmation_details_page_json = self._fetch_confirmation_details_page(confirmation)
-            if not confirmation_details_page_json['success']:
+            attempts = 5
+            while attempts:
                 confirmation_details_page_json = self._fetch_confirmation_details_page(confirmation)
+                if confirmation_details_page_json['success']:
+                    break
+                attempts -= 1
+                time.sleep(5)
+            if not confirmation_details_page_json['success']:
+                raise ConfirmationExpected
             confirmation_details_page = confirmation_details_page_json['html']
             confirmation_id = self._get_confirmation_sell_listing_id(confirmation_details_page)
             if confirmation_id == asset_id:
