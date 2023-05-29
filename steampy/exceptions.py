@@ -24,3 +24,7 @@ class CaptchaRequired(Exception):
 
 class ConfirmationExpected(Exception):
     pass
+
+
+class TradeUrlException(Exception):
+    pass

@@ -11,6 +11,7 @@ from typing import List
 from bs4 import BeautifulSoup, Tag
 
 from steampy.models import GameOptions
+from steampy.exceptions import TradeUrlException
 
 
 def text_between(text: str, begin: str, end: str) -> str:
@@ -165,10 +166,13 @@ def get_description_key(item: dict) -> str:
 
 def get_key_value_from_url(url: str, key: str, case_sensitive: bool=True) -> str:
     params = urlparse.urlparse(url).query
-    if case_sensitive:
-        return urlparse.parse_qs(params)[key][0]
-    else:
-        return CaseInsensitiveDict(urlparse.parse_qs(params))[key][0]
+    try:
+        if case_sensitive:
+            return urlparse.parse_qs(params)[key][0]
+        else:
+            return CaseInsensitiveDict(urlparse.parse_qs(params))[key][0]
+    except KeyError:
+        raise TradeUrlException
 
 
 def load_credentials():
