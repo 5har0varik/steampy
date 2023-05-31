@@ -190,18 +190,26 @@ class SteamMarket:
         }
         headers = {'Referer': "%s/market/listings/%s/%s" % (SteamUrl.COMMUNITY_URL, game.app_id, 
                                                             urllib.parse.quote(market_name))}
-        response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/createbuyorder/", data,
-                                      headers=headers).json()
-        if response.get("success") != 1:
-            attempts = 5
-            while response.get("success") != 1 or attempts > 0:
-                attempts -= 1
-                time.sleep(5)
+        response = None
+        attempts = 5
+        while attempts > 0:
+            try:
                 response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/createbuyorder/", data,
                                               headers=headers).json()
-        if response.get("success") != 1:
+            except exceptions.JSONDecodeError as errj:
+                print("Steampy JSON Error:", errj)
+                time.sleep(5)
+                attempts -= 1
+                continue
+            if response.get("success") != 1:
+                attempts -= 1
+                time.sleep(5)
+            else:
+                break
+                
+        if response is None or response.get("success") != 1:
             raise ApiException("There was a problem creating the order. Are you using the right currency? success: %s"
-                               % response.get("success"))
+                               % response)
         return response
 
     @login_required
