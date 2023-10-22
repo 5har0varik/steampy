@@ -47,7 +47,7 @@ class LoginExecutor:
         encrypted_password = self._encrypt_password(rsa_params)
         rsa_timestamp = rsa_params['rsa_timestamp']
         request_data = self._prepare_login_request_data(encrypted_password, rsa_timestamp)
-        return self._api_call('POST', 'IAuthenticationService', 'BeginAuthSessionViaCredentials', params = request_data)
+        return self._api_call('POST', 'IAuthenticationService', 'BeginAuthSessionViaCredentials', params=request_data)
 
     def set_sessionid_cookies(self):
         sessionid = self.session.cookies.get_dict()['sessionid']
@@ -67,7 +67,6 @@ class LoginExecutor:
                 "domain": domain}
 
     def _fetch_rsa_params(self, current_number_of_repetitions: int = 0) -> dict:
-
         self.session.post(SteamUrl.COMMUNITY_URL)
         request_data = {'account_name': self.username}
         response = self._api_call('GET', 'IAuthenticationService', 'GetPasswordRSAPublicKey', params = request_data)
@@ -106,6 +105,7 @@ class LoginExecutor:
             'account_name': self.username,
             'encryption_timestamp': rsa_timestamp,
         }
+
 
     @staticmethod
     def _check_for_captcha(login_response: requests.Response) -> None:
@@ -147,8 +147,7 @@ class LoginExecutor:
             'code_type': code_type,
             'code': code
         }
-        response = self._api_call('POST', 'IAuthenticationService', 'UpdateAuthSessionWithSteamGuardCode',
-                                  params = update_data)
+        response = self._api_call('POST', 'IAuthenticationService', 'UpdateAuthSessionWithSteamGuardCode', params=update_data)
         if response.status_code == 200:
             self._pool_sessions_steam(client_id, request_id)
             return True
@@ -160,7 +159,7 @@ class LoginExecutor:
             'client_id': client_id,
             'request_id': request_id
         }
-        response = self._api_call('POST', 'IAuthenticationService', 'PollAuthSessionStatus', params = pool_data)
+        response = self._api_call('POST', 'IAuthenticationService', 'PollAuthSessionStatus', params=pool_data)
         self.refresh_token = response.json()["response"]["refresh_token"]
 
     def _finallize_login(self):
