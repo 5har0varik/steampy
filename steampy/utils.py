@@ -6,12 +6,13 @@ import struct
 import urllib.parse as urlparse
 import re
 from requests.structures import CaseInsensitiveDict
+import requests
 from typing import List
 
 from bs4 import BeautifulSoup, Tag
 
 from steampy.models import GameOptions
-from steampy.exceptions import TradeUrlException
+from steampy.exceptions import TradeUrlException, ProxyConnectionError, LoginRequired
 
 
 def text_between(text: str, begin: str, end: str) -> str:
@@ -32,13 +33,13 @@ def texts_between(text: str, begin: str, end: str):
 
 
 def account_id_to_steam_id(account_id: str) -> str:
-    first_bytes = int(account_id).to_bytes(4, byteorder='big')
-    last_bytes = 0x1100001.to_bytes(4, byteorder='big')
+    first_bytes = int(account_id).to_bytes(4, byteorder = 'big')
+    last_bytes = 0x1100001.to_bytes(4, byteorder = 'big')
     return str(struct.unpack('>Q', last_bytes + first_bytes)[0])
 
 
 def steam_id_to_account_id(steam_id: str) -> str:
-    return str(struct.unpack('>L', int(steam_id).to_bytes(8, byteorder='big')[4:])[0])
+    return str(struct.unpack('>L', int(steam_id).to_bytes(8, byteorder = 'big')[4:])[0])
 
 
 def parse_price(price: str) -> decimal.Decimal:
@@ -53,7 +54,7 @@ def merge_items_with_descriptions_from_inventory(inventory_response: dict, game:
     if not inventory:
         return {}
     descriptions = {get_description_key(description): description for description in inventory_response['descriptions']}
-    return merge_items(inventory, descriptions, context_id=game.context_id)
+    return merge_items(inventory, descriptions, context_id = game.context_id)
 
 
 def merge_items_with_descriptions_from_offers(offers_response: dict) -> dict:
@@ -186,3 +187,16 @@ class Credentials:
         self.login = login
         self.password = password
         self.api_key = api_key
+
+def ping_proxy(proxies: dict):
+    try:
+        requests.get('https://steamcommunity.com/', proxies = proxies)
+        return True
+    except Exception as e:
+        raise ProxyConnectionError("Proxy not working for steamcommunity.com")
+
+def create_cookie(name: str, cookie: str, domain: str) -> dict:
+    return {"name": name,
+            "value": cookie,
+            "domain": domain}
+

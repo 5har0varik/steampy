@@ -28,3 +28,7 @@ class ConfirmationExpected(Exception):
 
 class TradeUrlException(Exception):
     pass
+
+
+class ProxyConnectionError(Exception):
+    pass
