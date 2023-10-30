@@ -269,12 +269,13 @@ class SteamMarket:
                 response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/cancelbuyorder/", data, headers=headers).json()
             except exceptions.JSONDecodeError as errj:
                 print("Steampy JSON Error:", errj)
-                time.sleep(5)
                 attempts -= 1
+                time.sleep(5*(5 - attempts))
                 continue
             if response.get("success") != 1:
+                print("There was a problem canceling the order. success: %s" % response.get("success"))
                 attempts -= 1
-                time.sleep(5)
+                time.sleep(5*(5 - attempts))
             else:
                 break
 

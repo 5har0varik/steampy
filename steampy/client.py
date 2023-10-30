@@ -399,6 +399,8 @@ class SteamClient:
         response = self._safe_get("%s/market" % SteamUrl.COMMUNITY_URL, is_json=False)
         response_soup = bs4.BeautifulSoup(response.text, "html.parser")
         balance = response_soup.find(class_="responsive_menu_user_wallet")
+        if balance is None:
+            print(response)
         balance = balance.b.text.strip().translate(str.maketrans('', '', '()'))
         balance = balance.replace(',', '.')
         balance = balance.replace(' ','')[:-2]
