@@ -4,6 +4,8 @@ import ast
 import time
 
 from decimal import Decimal
+
+import bs4
 from requests import Session, exceptions
 from steampy.confirmation import ConfirmationExecutor
 from steampy.exceptions import ApiException, TooManyRequests, LoginRequired
@@ -282,6 +284,41 @@ class SteamMarket:
         if response.get("success") != 1:
             raise ApiException("There was a problem canceling the order. success: %s" % response.get("success"))
         return response
+
+    @login_required
+    def get_latest_trade_hist(self, request_size=10, request_start=0):
+        headers = {"Referer": SteamUrl.COMMUNITY_URL + "/market"}
+        response = None
+        url = "%s/market/myhistory/?query=&start=%s&count=%s" % \
+              (SteamUrl.COMMUNITY_URL, str(request_start), str(request_size))
+        response = self._session.get(url, headers=headers)
+
+        prices = []
+        soup = bs4.BeautifulSoup(response.json()["results_html"], "html.parser")
+        all_rows = soup.find_all("div", class_="market_listing_row market_recent_listing_row")
+        for item in all_rows:
+            if item.find("div", class_="market_listing_whoactedwith_name_block") is not None:
+                purchase_sum = float(item.find("span", class_="market_listing_price").getText().replace("\t", ""). \
+                                     replace("\n", "").replace("\r", "").replace(",", ".").replace(" ", "")[:-1])
+                purchase_string_raw = item.find("div", class_="market_listing_listed_date_combined").getText(). \
+                    replace("\t", "").replace("\n", "").replace("\r", "")
+                purchase_string = purchase_string_raw[purchase_string_raw.find(":") + 2:]
+                if "Buyer" in item.find("div", class_="market_listing_whoactedwith_name_block").getText():
+                    prices.append({"action": "sell", "price": purchase_sum, "date_string": purchase_string})
+                elif "Seller" in item.find("div", class_="market_listing_whoactedwith_name_block").getText():
+                    prices.append({"action": "buy", "price": purchase_sum, "date_string": purchase_string})
+
+        json_data = response.json()["assets"]
+        items = {}
+        for appid, itemslist in json_data.items():
+            for contextid, item in itemslist.items():
+                for index, (k, v) in enumerate(item.items()):
+                    items[k] = v
+                    items[k]["action"] = prices[index]["action"]
+                    items[k]["price"] = prices[index]["price"]
+                    items[k]["date_string"] = prices[index]["date_string"]
+
+        return items
 
     def _confirm_sell_listing(self, asset_id: str) -> dict:
         con_executor = ConfirmationExecutor(self._steam_guard['identity_secret'], self._steam_guard['steamid'],
