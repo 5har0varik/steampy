@@ -312,11 +312,14 @@ class SteamMarket:
         items = {}
         for appid, itemslist in json_data.items():
             for contextid, item in itemslist.items():
-                for index, (k, v) in enumerate(item.items()):
-                    items[k] = v
-                    items[k]["action"] = prices[index]["action"]
-                    items[k]["price"] = prices[index]["price"]
-                    items[k]["date_string"] = prices[index]["date_string"]
+                index = 0
+                for k, v in item.items():
+                    if v["status"] != 2:
+                        items[k] = v
+                        items[k]["action"] = prices[index]["action"]
+                        items[k]["price"] = prices[index]["price"]
+                        items[k]["date_string"] = prices[index]["date_string"]
+                        index += 1
 
         return items
 
