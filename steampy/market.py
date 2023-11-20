@@ -36,12 +36,16 @@ class SteamMarket:
         self._session_id = session_id
         self.was_login_executed = True
         
-    def _safe_get(self, url, params):
-        response = type('obj', (object,), {'status_code' : None, 'text' : None})
+    def _safe_get(self, url, params=None, headers=None):
+        if not params:
+            params = {}
+        if not headers:
+            headers = {}
+        response = type('obj', (object,), {'status_code': None, 'text': None})
         pause_time = 0
         for i in range(100):
             try:
-                response = self._session.get(url, params=params)
+                response = self._session.get(url, params=params, headers=headers)
                 pause_time += 1
                 response.raise_for_status()
             except exceptions.HTTPError as errh:
@@ -66,7 +70,7 @@ class SteamMarket:
         except exceptions.JSONDecodeError as errj:
             print("Steampy JSON Error:", errj)
             time.sleep(1)
-            response = type('obj', (object,), {'status_code' : None, 'text' : None})
+            response = type('obj', (object,), {'status_code': None, 'text': None})
         return response
 
     def fetch_price(self, item_hash_name: str, game: GameOptions, currency: str = Currency.USD) -> dict:
@@ -291,7 +295,7 @@ class SteamMarket:
         response = None
         url = "%s/market/myhistory/?query=&start=%s&count=%s" % \
               (SteamUrl.COMMUNITY_URL, str(request_start), str(request_size))
-        response = self._session.get(url, headers=headers)
+        response = self._safe_get(url, headers=headers)
 
         prices = []
         soup = bs4.BeautifulSoup(response.json()["results_html"], "html.parser")

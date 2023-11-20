@@ -101,6 +101,64 @@ class SteamClient:
         response = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
         return response
 
+    def _safe_post(self, url, params=None, headers=None, data=None, use_proxy=False, is_json=True):
+        class MockResponse:
+            def __init__(self, json_data, status_code):
+                self.json_data = json_data
+                self.status_code = status_code
+
+            def json(self):
+                return self.json_data
+
+        repeats = 10
+        if headers is None:
+            headers = {}
+        if params is None:
+            params = {}
+        if data is None:
+            data = {}
+        response = type('obj', (object,), {'status_code': None, 'text': None})
+        pause_time = 0
+        for i in range(repeats):
+            if use_proxy:
+                proxy = self.proxy.get_proxy()
+            else:
+                proxy = {}
+            print(proxy)
+            try:
+                response = self._session.post(url, data=params, params=params, proxies=proxy, headers=headers)
+                pause_time += 1
+                response.raise_for_status()
+            except exceptions.HTTPError as errh:
+                print("Steampy Http Error:", errh)
+                if errh.response.status_code == requests.codes.TOO_MANY_REQUESTS:
+                    response = MockResponse({"status_code": errh.response.status_code}, errh.response.status_code)
+                    return response
+                time.sleep(pause_time)
+                continue
+            except exceptions.ConnectionError as errc:
+                print("Steampy Error Connecting:", errc)
+                time.sleep(pause_time)
+                continue
+            except exceptions.Timeout as errt:
+                print("Steampy Timeout Error:", errt)
+                time.sleep(pause_time)
+                continue
+            except exceptions.SSLError as errs:
+                print("Steampy SSL Error:", errs)
+                time.sleep(pause_time)
+                continue
+            if is_json:
+                try:
+                    data = response.json()
+                except exceptions.JSONDecodeError as errj:
+                    print("Steampy JSON Error:", errj)
+                    time.sleep(pause_time)
+                    continue
+            return response
+        response = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
+        return response
+
     def login(self, username: str, password: str, steam_guard: str) -> None:
         self.steam_guard = guard.load_steam_guard(steam_guard)
         self.username = username
@@ -384,7 +442,7 @@ class SteamClient:
         }
         headers = {'Referer': SteamUrl.COMMUNITY_URL + urlparse.urlparse(trade_offer_url).path,
                    'Origin': SteamUrl.COMMUNITY_URL}
-        response = self._session.post(url, data=params, headers=headers).json()
+        response = self._safe_post(url, data=params, headers=headers).json()
         if response.get('needs_mobile_confirmation'):
             response.update(self._confirm_transaction(response['tradeofferid']))
         return response
