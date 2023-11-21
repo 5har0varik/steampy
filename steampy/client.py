@@ -66,7 +66,6 @@ class SteamClient:
                 proxy = self.proxy.get_proxy()
             else:
                 proxy = {}
-            print(proxy)
             try:
                 response = self._session.get(url, params=params, proxies=proxy, headers=headers)
                 pause_time += 1
@@ -124,9 +123,8 @@ class SteamClient:
                 proxy = self.proxy.get_proxy()
             else:
                 proxy = {}
-            print(proxy)
             try:
-                response = self._session.post(url, data=params, params=params, proxies=proxy, headers=headers)
+                response = self._session.post(url, data=data, params=params, proxies=proxy, headers=headers)
                 pause_time += 1
                 response.raise_for_status()
             except exceptions.HTTPError as errh:
