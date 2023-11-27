@@ -154,7 +154,7 @@ class SteamMarket:
         return response.json()
 
     @login_required
-    def fetch_price_history(self, item_market_url: str, game: GameOptions) -> tuple:
+    def fetch_price_history(self, item_market_url: str, game: GameOptions, get_id=False) -> tuple:
         url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
         response = self._session.get(url)
         if response.status_code == 429:
@@ -163,10 +163,24 @@ class SteamMarket:
         if 'var line1=' in response.text:
             data_string = text_between(response.text, 'var line1=', 'g_timePriceHistoryEarliest = new Date();')
         else:
-            return [], False
+            if get_id:
+                if 'Market_LoadOrderSpread' in response.text:
+                    id_string = text_between(response.text, 'Market_LoadOrderSpread( ', ' );')
+                    return [], False, int(id_string)
+                else:
+                    return [], False, 0
+            else:
+                return [], False
         data_string = data_string[:data_string.find(';')]
         data_string = ast.literal_eval(data_string)
-        return data_string, "( Not Usable in Crafting )" in response.text
+        if get_id:
+            if 'Market_LoadOrderSpread' in response.text:
+                id_string = text_between(response.text, 'Market_LoadOrderSpread( ', ' );')
+                return data_string, "( Not Usable in Crafting )" in response.text, int(id_string)
+            else:
+                return data_string, "( Not Usable in Crafting )" in response.text, 0
+        else:
+            return data_string, "( Not Usable in Crafting )" in response.text
     
     @login_required
     def fetch_item_orders_histogram(self, item_nameid: str, item_market_url: str, currency: str = Currency.USD) -> dict:
@@ -376,7 +390,7 @@ class SteamMarket:
             for contextid, item in itemslist.items():
                 index = 0
                 for k, v in item.items():
-                    if v["status"] != 2:
+                    if (v["status"] != 2) & (v["status"] != 8):
                         items[k] = v
                         items[k]["action"] = prices[index]["action"]
                         items[k]["price"] = prices[index]["price"]
