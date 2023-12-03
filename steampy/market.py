@@ -377,7 +377,17 @@ class SteamMarket:
         response = None
         url = "%s/market/myhistory/?query=&start=%s&count=%s" % \
               (SteamUrl.COMMUNITY_URL, str(request_start), str(request_size))
-        response = self._safe_get(url, headers=headers)
+        response = None
+        attempts = 5
+        while attempts > 0:
+            response = self._safe_get(url, headers=headers)
+            if response.json()["total_count"] == 0:
+                time.sleep(5)
+                attempts -= 1
+            else:
+                break
+        if response.json()["total_count"] == 0:
+            raise ApiException("Problem while obtaining latest trade hist: zero size ", response.text)
 
         prices = []
         soup = bs4.BeautifulSoup(response.json()["results_html"], "html.parser")
