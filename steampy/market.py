@@ -279,7 +279,17 @@ class SteamMarket:
                 time.sleep(5)
                 attempts -= 1
                 continue
-            if response.get("success") != 1:
+            if response.get("success") == 1:
+                return response
+            elif response.get("success") == 29:
+                print(response)
+                return response
+            elif response.get("success") == 40:
+                print(response)
+                attempts -= 1
+                time.sleep(5)
+            if response.get("success") == 107:
+                print(response)
                 attempts -= 1
                 time.sleep(5)
             else:
