@@ -65,13 +65,14 @@ class SteamMarket:
                 print("Steampy SSL Error:", errs)
                 time.sleep(pause_time)
                 continue
+            try:
+                data = response.json()
+            except exceptions.JSONDecodeError as errj:
+                print("Steampy JSON Error:", errj)
+                time.sleep(pause_time)
+                continue
+                #response = type('obj', (object,), {'status_code': None, 'text': None})
             break
-        try:
-            data = response.json()
-        except exceptions.JSONDecodeError as errj:
-            print("Steampy JSON Error:", errj)
-            time.sleep(1)
-            response = type('obj', (object,), {'status_code': None, 'text': None})
         return response
 
     def _safe_post(self, url, params=None, headers=None, data=None, use_proxy=False, is_json=True):
