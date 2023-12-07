@@ -137,7 +137,7 @@ class SteamMarket:
                   'currency': currency.value,
                   'appid': game.app_id,
                   'market_hash_name': item_hash_name}
-        response = self._session.get(url, params=params)
+        response = self._safe_get(url, params=params)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
@@ -148,7 +148,7 @@ class SteamMarket:
         params = {'country': 'PL',
                   'appid': game.app_id,
                   'market_hash_name': item_hash_name}
-        response = self._session.get(url, params=params)
+        response = self._safe_get(url, params=params)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
@@ -156,7 +156,7 @@ class SteamMarket:
     @login_required
     def fetch_price_history(self, item_market_url: str, game: GameOptions, get_id=False) -> tuple:
         url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
-        response = self._session.get(url)
+        response = self._safe_get(url)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         data_string = ""
@@ -198,7 +198,7 @@ class SteamMarket:
 
     @login_required
     def get_my_market_listings(self) -> dict:
-        response = self._session.get("%s/market" % SteamUrl.COMMUNITY_URL)
+        response = self._safe_get("%s/market" % SteamUrl.COMMUNITY_URL)
         if response.status_code != 200:
             raise ApiException("There was a problem getting the listings. http code: %s" % response.status_code)
         assets_descriptions = json.loads(text_between(response.text, "var g_rgAssets = ", ";\r\n"))
@@ -211,7 +211,7 @@ class SteamMarket:
             n_total = int(text_between(response.text, '<span id="tabContentsMyActiveMarketListings_total">', '</span>').replace(',',''))
             if n_showing < n_total < 1000:
                 url = "%s/market/mylistings/render/?query=&start=%s&count=%s" % (SteamUrl.COMMUNITY_URL, n_showing, -1)
-                response = self._session.get(url)
+                response = self._safe_get(url)
                 if response.status_code != 200:
                     raise ApiException("There was a problem getting the listings. http code: %s" % response.status_code)
                 jresp = response.json()
@@ -223,7 +223,7 @@ class SteamMarket:
             else:
                 for i in range(0, n_total, 100):
                     url = "%s/market/mylistings/?query=&start=%s&count=%s" % (SteamUrl.COMMUNITY_URL, n_showing + i, 100)
-                    response = self._session.get(url)
+                    response = self._safe_get(url)
                     if response.status_code != 200:
                         raise ApiException("There was a problem getting the listings. http code: %s" % response.status_code)
                     jresp = response.json()
@@ -284,6 +284,10 @@ class SteamMarket:
             elif response.get("success") == 29:
                 print(response)
                 return response
+            elif response.get("success") == 16:
+                print(response)
+                attempts -= 1
+                time.sleep(5)
             elif response.get("success") == 40:
                 print(response)
                 attempts -= 1
