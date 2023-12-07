@@ -373,8 +373,8 @@ class SteamMarket:
             else:
                 break
 
-        if response.get("success") != 1:
-            raise ApiException("There was a problem canceling the order. success: %s" % response.get("success"))
+        # if response.get("success") != 1:
+        #     raise ApiException("There was a problem canceling the order. success: %s" % response.get("success"))
         return response
 
     @login_required
