@@ -37,7 +37,7 @@ class SteamMarket:
         self._session_id = session_id
         self.was_login_executed = True
         
-    def _safe_get(self, url, params=None, headers=None):
+    def _safe_get(self, url, params=None, headers=None, is_json=True):
         if not params:
             params = {}
         if not headers:
@@ -65,13 +65,14 @@ class SteamMarket:
                 print("Steampy SSL Error:", errs)
                 time.sleep(pause_time)
                 continue
-            try:
-                data = response.json()
-            except exceptions.JSONDecodeError as errj:
-                print("Steampy JSON Error:", errj)
-                time.sleep(pause_time)
-                continue
-                #response = type('obj', (object,), {'status_code': None, 'text': None})
+            if is_json:
+                try:
+                    data = response.json()
+                except exceptions.JSONDecodeError as errj:
+                    print("Steampy JSON Error:", errj)
+                    time.sleep(pause_time)
+                    continue
+                    #response = type('obj', (object,), {'status_code': None, 'text': None})
             break
         return response
 
@@ -157,7 +158,7 @@ class SteamMarket:
     @login_required
     def fetch_price_history(self, item_market_url: str, game: GameOptions, get_id=False) -> tuple:
         url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
-        response = self._safe_get(url)
+        response = self._safe_get(url, is_json=False)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         data_string = ""
@@ -199,7 +200,7 @@ class SteamMarket:
 
     @login_required
     def get_my_market_listings(self) -> dict:
-        response = self._safe_get("%s/market" % SteamUrl.COMMUNITY_URL)
+        response = self._safe_get("%s/market" % SteamUrl.COMMUNITY_URL, is_json=False)
         if response.status_code != 200:
             raise ApiException("There was a problem getting the listings. http code: %s" % response.status_code)
         assets_descriptions = json.loads(text_between(response.text, "var g_rgAssets = ", ";\r\n"))
