@@ -301,7 +301,7 @@ class SteamMarket:
             else:
                 break
 
-        if response is None or response.get("success") != 1:
+        if response is None:
             raise ApiException("There was a problem creating the order. Are you using the right currency? success: %s"
                                % response)
         return response

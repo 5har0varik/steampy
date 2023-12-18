@@ -182,6 +182,9 @@ class ConfirmationExecutor:
     @staticmethod
     def _get_confirmation_sell_listing_id(confirmation_details_page: str) -> str:
         soup = BeautifulSoup(confirmation_details_page, 'html.parser')
+        if len(soup.select("script")) < 3:
+            print(confirmation_details_page)
+            return ""
         scr_raw = soup.select("script")[2].string.strip()
         scr_raw = scr_raw[scr_raw.index("'confiteminfo', ") + 16:]
         scr_raw = scr_raw[:scr_raw.index(", UserYou")].replace("\n", "")
@@ -190,5 +193,8 @@ class ConfirmationExecutor:
     @staticmethod
     def _get_confirmation_trade_offer_id(confirmation_details_page: str) -> str:
         soup = BeautifulSoup(confirmation_details_page, 'html.parser')
+        if len(soup.select('.tradeoffer')) == 0:
+            print(confirmation_details_page)
+            return ""
         full_offer_id = soup.select('.tradeoffer')[0]['id']
         return full_offer_id.split('_')[1]
