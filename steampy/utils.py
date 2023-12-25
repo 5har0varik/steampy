@@ -4,11 +4,13 @@ import copy
 import math
 import struct
 import json
+import time
 from typing import List
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs
 
 import requests
+from itertools import cycle
 from retrying import retry
 from bs4 import BeautifulSoup, Tag
 from requests.structures import CaseInsensitiveDict
@@ -17,7 +19,49 @@ from steampy.models import GameOptions
 from steampy.exceptions import ProxyConnectionError, LoginRequired
 
 
+class ProxyCarousel:
+    def __init__(self, json_filename, max_usage=5, cooldown_after_427=3600):
+        self.proxy_list = []
+        self.json_file = json_filename
+        if os.path.exists(self.json_file):
+            f = open(self.json_file, "r")
+            self.proxy_data = json.loads(f.read())
+            response = requests.get(self.proxy_data["Url"], headers=self.proxy_data["Headers"])
+            print(response.json())
+            for item in response.json()["results"]:
+                # https='socks5://user:pass@host:port'
+                if item['valid']:
+                    self.proxy_list.append({"https": "socks5://" + item['username'] + ':' + item['password'] + '@' +
+                                                     item['proxy_address'] + ':' + str(item['port'])})
+        else:
+            print("No json with proxy setup")
+        self.max_usage = max_usage
+        self.cooldown_after_427 = cooldown_after_427
+        self.proxy_cycle = cycle(self.proxy_list)
+        self.proxy_usage_count = {proxy: 0 for proxy in self.proxy_list}
+        self.last_proxy_usage_time = {proxy: 0 for proxy in self.proxy_list}
+
+    def get_next_proxy(self):
+        while True:
+            # Get the next proxy in the cycle
+            next_proxy = next(self.proxy_cycle)
+
+            # Check if the proxy can be used based on the usage count and cooldown time
+            current_time = time.time()
+            if self.proxy_usage_count[next_proxy] < self.max_usage:
+                self.proxy_usage_count[next_proxy] += 1
+                self.last_proxy_usage_time[next_proxy] = current_time
+                return next_proxy
+            else:
+                # If the proxy has reached its usage limit, try the next one
+                print(f"Proxy {next_proxy} reached usage limit. Trying the next one.")
+
+
 class SafeSession(requests.Session):
+    def __init__(self, proxy_carousel, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.proxy_carousel = proxy_carousel
+
     @retry(
         retry_on_exception=lambda e: (
                 isinstance(e, (
@@ -27,11 +71,15 @@ class SafeSession(requests.Session):
                         requests.exceptions.Timeout
                 )) or (isinstance(e, requests.exceptions.HTTPError) and e.response.status_code != 427)
         ),
-        stop_max_attempt_number=100,  # Number of maximum attempts
+        stop_max_attempt_number=20,  # Number of maximum attempts
         wait_fixed=2000
     )
-    def _safe_get_post(self, url, expect_json=True, is_get=True, **kwargs):
+    def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
         try:
+            if use_proxy:
+                proxy = self.proxy_carousel.get_next_proxy()
+                kwargs['proxies'] = {'http': proxy, 'https': proxy}
+
             response = self.get(url, **kwargs) if is_get else self.post(url, **kwargs)
             response.raise_for_status()  # Raises HTTPError for bad responses
 
