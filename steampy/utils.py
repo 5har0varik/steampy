@@ -63,13 +63,38 @@ class SafeSession(requests.Session):
         self.proxy_carousel = proxy_carousel
 
     @retry(
-        retry_on_exception=lambda e: (
-                isinstance(e, (
-                        json.JSONDecodeError,
-                        requests.exceptions.RequestException,
-                        requests.exceptions.ConnectionError,
-                        requests.exceptions.Timeout
-                )) or (isinstance(e, requests.exceptions.HTTPError) and e.response.status_code != 427)
+        retry_on_exception=lambda e, use_proxy: (
+                (
+                        not use_proxy and
+                        isinstance(e, (
+                                json.JSONDecodeError,
+                                requests.exceptions.RequestException,
+                                requests.exceptions.ConnectionError,
+                                requests.exceptions.Timeout,
+                                requests.exceptions.HTTPError  # Include HTTPError in the exception types
+                        )) and
+                        (
+                                not isinstance(e, requests.exceptions.HTTPError) or
+                                (e.response.status_code != 427 and e.response.status_code != 429)
+                        )
+                ) or
+                (
+                    # FIXME: get new proxy only if error 427 or 429
+                        use_proxy and
+                        (
+                                isinstance(e, (
+                                        json.JSONDecodeError,
+                                        requests.exceptions.RequestException,
+                                        requests.exceptions.ConnectionError,
+                                        requests.exceptions.Timeout,
+                                        requests.exceptions.HTTPError  # Include HTTPError in the exception types
+                                )) or
+                                (
+                                        isinstance(e, requests.exceptions.HTTPError) and
+                                        (e.response.status_code == 427 or e.response.status_code == 429)
+                                )
+                        )
+                )
         ),
         stop_max_attempt_number=20,  # Number of maximum attempts
         wait_fixed=2000
@@ -97,6 +122,9 @@ class SafeSession(requests.Session):
                 return response
         except requests.exceptions.RequestException as e:
             # Handle exceptions (e.g., ConnectionError, Timeout, HTTPError)
+            if not use_proxy and (e.response.status_code == 427 or e.response.status_code == 429):
+                print("Too many requests")
+                return response
             if expect_json:
                 print(f"Error during GET request or invalid JSON content: {e}")
             else:
