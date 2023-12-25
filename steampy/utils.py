@@ -40,11 +40,15 @@ class ProxyCarousel:
         self.proxy_cycle = cycle(self.proxy_list)
         self.proxy_usage_count = {proxy: 0 for proxy in self.proxy_list}
         self.last_proxy_usage_time = {proxy: 0 for proxy in self.proxy_list}
+        self.current_proxy = None
 
-    def get_next_proxy(self):
+    def get_next_proxy(self, force_change=False):
+        # FIXME: this is complete nonsence
         while True:
             # Get the next proxy in the cycle
-            next_proxy = next(self.proxy_cycle)
+            if force_change:
+                self.proxy_usage_count[self.current_proxy] = 0
+                next_proxy = next(self.proxy_cycle)
 
             # Check if the proxy can be used based on the usage count and cooldown time
             current_time = time.time()
@@ -56,6 +60,14 @@ class ProxyCarousel:
                 # If the proxy has reached its usage limit, try the next one
                 print(f"Proxy {next_proxy} reached usage limit. Trying the next one.")
 
+    def get_current_proxy(self):
+        if self.current_proxy is None:
+            self.update_current_proxy()
+        return self.current_proxy
+
+    def update_current_proxy(self):
+        self.current_proxy = self.get_next_proxy()
+
 
 class SafeSession(requests.Session):
     def __init__(self, proxy_carousel, *args, **kwargs):
@@ -64,37 +76,13 @@ class SafeSession(requests.Session):
 
     @retry(
         retry_on_exception=lambda e, use_proxy: (
-                (
-                        not use_proxy and
-                        isinstance(e, (
-                                json.JSONDecodeError,
-                                requests.exceptions.RequestException,
-                                requests.exceptions.ConnectionError,
-                                requests.exceptions.Timeout,
-                                requests.exceptions.HTTPError  # Include HTTPError in the exception types
-                        )) and
-                        (
-                                not isinstance(e, requests.exceptions.HTTPError) or
-                                (e.response.status_code != 427 and e.response.status_code != 429)
-                        )
-                ) or
-                (
-                    # FIXME: get new proxy only if error 427 or 429
-                        use_proxy and
-                        (
-                                isinstance(e, (
-                                        json.JSONDecodeError,
-                                        requests.exceptions.RequestException,
-                                        requests.exceptions.ConnectionError,
-                                        requests.exceptions.Timeout,
-                                        requests.exceptions.HTTPError  # Include HTTPError in the exception types
-                                )) or
-                                (
-                                        isinstance(e, requests.exceptions.HTTPError) and
-                                        (e.response.status_code == 427 or e.response.status_code == 429)
-                                )
-                        )
-                )
+                isinstance(e, (
+                            json.JSONDecodeError,
+                            requests.exceptions.RequestException,
+                            requests.exceptions.ConnectionError,
+                            requests.exceptions.Timeout,
+                            requests.exceptions.HTTPError  # Include HTTPError in the exception types
+                    ))
         ),
         stop_max_attempt_number=20,  # Number of maximum attempts
         wait_fixed=2000
@@ -102,7 +90,7 @@ class SafeSession(requests.Session):
     def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
         try:
             if use_proxy:
-                proxy = self.proxy_carousel.get_next_proxy()
+                proxy = self.proxy_carousel.get_current_proxy()
                 kwargs['proxies'] = {'http': proxy, 'https': proxy}
 
             response = self.get(url, **kwargs) if is_get else self.post(url, **kwargs)
@@ -122,9 +110,12 @@ class SafeSession(requests.Session):
                 return response
         except requests.exceptions.RequestException as e:
             # Handle exceptions (e.g., ConnectionError, Timeout, HTTPError)
-            if not use_proxy and (e.response.status_code == 427 or e.response.status_code == 429):
-                print("Too many requests")
-                return response
+            if e.response.status_code == 427 or e.response.status_code == 429:
+                if not use_proxy:
+                    print("Too many requests")
+                    return response
+                else:
+                    self.proxy_carousel.update_current_proxy()
             if expect_json:
                 print(f"Error during GET request or invalid JSON content: {e}")
             else:
