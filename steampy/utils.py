@@ -88,7 +88,7 @@ class SafeSession(requests.Session):
                             requests.exceptions.HTTPError  # Include HTTPError in the exception types
                     ))
         ),
-        stop_max_attempt_number=20,  # Number of maximum attempts
+        stop_max_attempt_number=50,  # Number of maximum attempts
         wait_fixed=2000
     )
     def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
