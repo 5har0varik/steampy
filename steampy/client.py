@@ -37,9 +37,12 @@ class SteamClient:
         steam_guard: str = None,
         login_cookies: dict = None,
         proxies: dict = None,
+        ua_header: dict = None,
+        proxy_setting_file: str = None
     ) -> None:
         self._api_key = api_key
         self._session = SafeSession()
+        self._session.headers.update(ua_header)
 
         if proxies:
             self.set_proxies(proxies)
