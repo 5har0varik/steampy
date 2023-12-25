@@ -1,21 +1,12 @@
 import json
-
-
 import ast
 import time
-import requests
-
-from decimal import Decimal
 
 import bs4
-from requests import Session, exceptions
-
 
 import urllib.parse
 from decimal import Decimal
 from http import HTTPStatus
-
-from requests import Session
 
 from steampy.confirmation import ConfirmationExecutor
 from steampy.exceptions import ApiException, TooManyRequests
@@ -27,11 +18,12 @@ from steampy.utils import (
     merge_items_with_descriptions_from_listing,
     get_market_sell_listings_from_api,
     login_required,
+    SafeSession
 )
 
 
 class SteamMarket:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: SafeSession) -> None:
         self._session = session
         self._steam_guard = None
         self._session_id = None
@@ -41,104 +33,6 @@ class SteamMarket:
         self._steam_guard = steamguard
         self._session_id = session_id
         self.was_login_executed = True
-        
-    def _safe_get(self, url, params=None, headers=None, is_json=False):
-        class MockResponse:
-            def __init__(self, json_data, status_code):
-                self.json_data = json_data
-                self.status_code = status_code
-
-            def json(self):
-                return self.json_data
-
-
-        if not params:
-            params = {}
-        if not headers:
-            headers = {}
-        resp = type('obj', (object,), {'status_code': None, 'text': None})
-        pause_time = 0
-        repeats = 10
-        for i in range(100):
-            try:
-                resp = self._session.get(url, params=params, headers=headers)
-                pause_time += 1
-                resp.raise_for_status()
-            except exceptions.HTTPError as errh:
-                print("Steampy Http Error:", errh)
-                time.sleep(pause_time)
-                continue
-            except exceptions.ConnectionError as errc:
-                print("Steampy Error Connecting:", errc)
-                time.sleep(pause_time)
-                continue
-            except exceptions.Timeout as errt:
-                print("Steampy Timeout Error:", errt)
-                time.sleep(pause_time)
-                continue
-            if is_json:
-                try:
-                    data = resp.json()
-                except exceptions.JSONDecodeError as errj:
-                    print("Steampy JSON Error:", errj)
-                    time.sleep(pause_time)
-                    continue
-            return resp
-        resp = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
-        return resp
-
-    def _safe_post(self, url, params=None, headers=None, data=None, use_proxy=False, is_json=False):
-        class MockResponse:
-            def __init__(self, json_data, status_code):
-                self.json_data = json_data
-                self.status_code = status_code
-
-            def json(self):
-                return self.json_data
-
-        repeats = 10
-        if headers is None:
-            headers = {}
-        if params is None:
-            params = {}
-        if data is None:
-            data = {}
-        resp = type('obj', (object,), {'status_code': None, 'text': None})
-        pause_time = 0
-        for i in range(repeats):
-            if use_proxy:
-                proxy = self.proxy.get_proxy()
-            else:
-                proxy = {}
-            try:
-                resp = self._session.post(url, data=data, params=params, proxies=proxy, headers=headers)
-                pause_time += 1
-                resp.raise_for_status()
-            except exceptions.HTTPError as errh:
-                print("Steampy Http Error:", errh)
-                if errh.response.status_code == requests.codes.TOO_MANY_REQUESTS:
-                    resp = MockResponse({"status_code": errh.response.status_code}, errh.response.status_code)
-                    return resp
-                time.sleep(pause_time)
-                continue
-            except exceptions.ConnectionError as errc:
-                print("Steampy Error Connecting:", errc)
-                time.sleep(pause_time)
-                continue
-            except exceptions.Timeout as errt:
-                print("Steampy Timeout Error:", errt)
-                time.sleep(pause_time)
-                continue
-            if is_json:
-                try:
-                    data = resp.json()
-                except exceptions.JSONDecodeError as errj:
-                    print("Steampy JSON Error:", errj)
-                    time.sleep(pause_time)
-                    continue
-            return resp
-        resp = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
-        return resp
 
     def fetch_price(self, item_hash_name: str, game: GameOptions, currency: str = Currency.USD) -> dict:
         url = SteamUrl.COMMUNITY_URL + '/market/priceoverview/'
@@ -146,7 +40,7 @@ class SteamMarket:
                   'currency': currency.value,
                   'appid': game.app_id,
                   'market_hash_name': item_hash_name}
-        response = self._safe_get(url, params=params, is_json=True)
+        response = self._session.safe_get(url, expect_json=True, params=params)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
@@ -154,7 +48,7 @@ class SteamMarket:
     @login_required
     def fetch_price_history(self, item_market_url: str, game: GameOptions, get_id=False) -> tuple:
         url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
-        response = self._safe_get(url, is_json=False)
+        response = self._session.safe_get(url, expect_json=False)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         data_string = ""
@@ -188,15 +82,16 @@ class SteamMarket:
                   'currency': currency.value,
                   'item_nameid': item_nameid,
                   'two_factor': '0'}
-        self._session.headers.update({'Referer': item_market_url})
-        response = self._safe_get(url, params=params, is_json=True)
+        #self._session.headers.update({'Referer': item_market_url})
+        headers = {'Referer': item_market_url}
+        response = self._session.safe_get(url, expect_json=True, params=params, headers=headers)
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
 
     @login_required
     def get_my_market_listings(self) -> dict:
-        response = self._safe_get("%s/market" % SteamUrl.COMMUNITY_URL, is_json=False)
+        response = self._session.safe_get("%s/market" % SteamUrl.COMMUNITY_URL, expect_json=False)
         if response.status_code != 200:
             raise ApiException("There was a problem getting the listings. http code: %s" % response.status_code)
         assets_descriptions = json.loads(text_between(response.text, 'var g_rgAssets = ', ';\r\n'))
@@ -216,7 +111,7 @@ class SteamMarket:
 
             if n_showing < n_total < 1000:
                 url = f'{SteamUrl.COMMUNITY_URL}/market/mylistings/render/?query=&start={n_showing}&count={-1}'
-                response = self._safe_get(url, is_json=True)
+                response = self._session.safe_get(url, expect_json=True)
                 if response.status_code != HTTPStatus.OK:
                     raise ApiException(f'There was a problem getting the listings. HTTP code: {response.status_code}')
                 jresp = response.json()
@@ -229,7 +124,7 @@ class SteamMarket:
             else:
                 for i in range(0, n_total, 100):
                     url = f'{SteamUrl.COMMUNITY_URL}/market/mylistings/?query=&start={n_showing + i}&count={100}'
-                    response = self._safe_get(url, is_json=True)
+                    response = self._session.safe_get(url, expect_json=True)
                     if response.status_code != HTTPStatus.OK:
                         raise ApiException(
                             f'There was a problem getting the listings. HTTP code: {response.status_code}'
@@ -255,7 +150,8 @@ class SteamMarket:
             'price': money_to_receive,
         }
         headers = {'Referer': f'{SteamUrl.COMMUNITY_URL}/profiles/{self._steam_guard["steamid"]}/inventory'}
-        response = self._safe_post(f'{SteamUrl.COMMUNITY_URL}/market/sellitem/', data=data, headers=headers, is_json=True).json()
+        response = self._session.safe_post(f'{SteamUrl.COMMUNITY_URL}/market/sellitem/', expect_json=True, data=data,
+                                           headers=headers).json()
         if response.get("needs_mobile_confirmation"):
             r = self._confirm_sell_listing(assetid)
             while 'success' not in r or not r['success']:
@@ -288,14 +184,8 @@ class SteamMarket:
         response = None
         attempts = 5
         while attempts > 0:
-            try:
-                response = self._safe_post(f'{SteamUrl.COMMUNITY_URL}/market/createbuyorder/', data=data,
-                                              headers=headers, is_json=True).json()
-            except exceptions.JSONDecodeError as errj:
-                print("Steampy JSON Error:", errj)
-                time.sleep(5)
-                attempts -= 1
-                continue
+            response = self._session.safe_post(f'{SteamUrl.COMMUNITY_URL}/market/createbuyorder/', expect_json=True,
+                                               data=data, headers=headers).json()
             if response.get("success") == 1:
                 return response
             elif response.get("success") == 29:
@@ -342,8 +232,8 @@ class SteamMarket:
         headers = {
             'Referer': f'{SteamUrl.COMMUNITY_URL}/market/listings/{game.app_id}/{urllib.parse.quote(market_name)}'
         }
-        response = self._safe_post(f'{SteamUrl.COMMUNITY_URL}/market/buylisting/{market_id}', data=data,
-                                      headers=headers, is_json=True).json()
+        response = self._session.safe_post(f'{SteamUrl.COMMUNITY_URL}/market/buylisting/{market_id}', expect_json=True,
+                                           data=data, headers=headers).json()
         try:
             if (success := response['wallet_info']['success']) != 1:
                 raise ApiException(
@@ -359,7 +249,7 @@ class SteamMarket:
         data = {'sessionid': self._session_id}
         headers = {'Referer': f'{SteamUrl.COMMUNITY_URL}/market/'}
         url = f'{SteamUrl.COMMUNITY_URL}/market/removelisting/{sell_listing_id}'
-        response = self._safe_post(url, data=data, headers=headers, is_json=True)
+        response = self._session.safe_post(url, expect_json=True, data=data, headers=headers)
         if response.status_code != 200:
             raise ApiException("There was a problem removing the listing. http code: %s" % response.status_code)
 
@@ -367,8 +257,9 @@ class SteamMarket:
     def get_sell_order(self, sell_listing_id: str) -> dict:
         data = {'sessionid': self._session_id}
         headers = {'Referer': f'{SteamUrl.COMMUNITY_URL}/market'}
-        url = "%s/market/getbuyorderstatus/?sessionid=%s&buy_orderid=%s" % (SteamUrl.COMMUNITY_URL, self._session_id, sell_listing_id)
-        response = self._safe_post(url, data=data, headers=headers, is_json=True)
+        url = "%s/market/getbuyorderstatus/?sessionid=%s&buy_orderid=%s" % (SteamUrl.COMMUNITY_URL, self._session_id,
+                                                                            sell_listing_id)
+        response = self._session.safe_post(url, expect_json=True, data=data, headers=headers)
         if response.status_code != 200:
             raise ApiException("There was a problem removing the listing. http code: %s" % response.status_code)
         return response.json()
@@ -380,13 +271,8 @@ class SteamMarket:
         response = None
         attempts = 5
         while attempts > 0:
-            try:
-                response = self._safe_post(f'{SteamUrl.COMMUNITY_URL}/market/cancelbuyorder/', data=data, headers=headers, is_json=True).json()
-            except exceptions.JSONDecodeError as errj:
-                print("Steampy JSON Error:", errj)
-                attempts -= 1
-                time.sleep(5*(5 - attempts))
-                continue
+            response = self._session.safe_post(f'{SteamUrl.COMMUNITY_URL}/market/cancelbuyorder/', expect_json=True,
+                                               data=data, headers=headers).json()
             if response.get("success") != 1:
                 print("There was a problem canceling the order. success: %s" % response.get("success"))
                 attempts -= 1
@@ -407,7 +293,7 @@ class SteamMarket:
         response = None
         attempts = 5
         while attempts > 0:
-            response = self._safe_get(url, headers=headers, is_json=True)
+            response = self._session.safe_get(url, expect_json=True, headers=headers)
             if response.json()["total_count"] == 0:
                 time.sleep(5)
                 attempts -= 1
@@ -421,7 +307,7 @@ class SteamMarket:
         all_rows = soup.find_all("div", class_="market_listing_row market_recent_listing_row")
         for item in all_rows:
             if item.find("div", class_="market_listing_whoactedwith_name_block") is not None:
-                purchase_sum = float(item.find("span", class_="market_listing_price").getText().replace("\t", ""). \
+                purchase_sum = float(item.find("span", class_="market_listing_price").getText().replace("\t", "").
                                      replace("\n", "").replace("\r", "").replace(",", ".").replace(" ", "")[:-1])
                 purchase_string_raw = item.find("div", class_="market_listing_listed_date_combined").getText(). \
                     replace("\t", "").replace("\n", "").replace("\r", "")

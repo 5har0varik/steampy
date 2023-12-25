@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from steampy import guard
 from steampy.exceptions import ConfirmationExpected
 from steampy.login import InvalidCredentials
+from steampy.utils import SafeSession
 
 
 class Confirmation:
@@ -28,56 +29,10 @@ class Tag(enum.Enum):
 class ConfirmationExecutor:
     CONF_URL = 'https://steamcommunity.com/mobileconf'
 
-    def __init__(self, identity_secret: str, my_steam_id: str, session: requests.Session) -> None:
+    def __init__(self, identity_secret: str, my_steam_id: str, session: SafeSession) -> None:
         self._my_steam_id = my_steam_id
         self._identity_secret = identity_secret
         self._session = session
-
-    def _safe_get(self, url, params, headers, use_proxy=False, is_json=False):
-        class MockResponse:
-            def __init__(self, json_data, status_code):
-                self.json_data = json_data
-                self.status_code = status_code
-
-            def json(self):
-                return self.json_data
-
-        resp = type('obj', (object,), {'status_code': None, 'text': None})
-        pause_time = 0
-        repeats = 10
-        for i in range(repeats):
-            if use_proxy:
-                proxy = {}  #self.proxy.get_proxy()
-            else:
-                proxy = {}
-            print(proxy)
-            try:
-                resp = self._session.get(url, params=params, headers=headers, proxies=proxy)
-                pause_time += 1
-                resp.raise_for_status()
-            except requests.exceptions.HTTPError as errh:
-                print("Steampy Http Error:", errh)
-                time.sleep(pause_time)
-                continue
-            except requests.exceptions.ConnectionError as errc:
-                print("Steampy Error Connecting:", errc)
-                time.sleep(pause_time)
-                continue
-            except requests.exceptions.Timeout as errt:
-                print("Steampy Timeout Error:", errt)
-                time.sleep(pause_time)
-                continue
-
-            if is_json:
-                try:
-                    data = resp.json()
-                except requests.exceptions.JSONDecodeError as errj:
-                    print("Steampy JSON Error:", errj)
-                    time.sleep(pause_time)
-                    continue
-            return resp
-        resp = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
-        return resp
 
     def send_trade_allow_request(self, trade_offer_id: str) -> dict:
         confirmations = self._get_confirmations()
@@ -96,7 +51,7 @@ class ConfirmationExecutor:
         params['cid'] = confirmation.data_confid
         params['ck'] = confirmation.nonce
         headers = {'X-Requested-With': 'XMLHttpRequest'}
-        return self._safe_get(f'{self.CONF_URL}/ajaxop', params=params, headers=headers, is_json=True).json()
+        return self._session.safe_get(f'{self.CONF_URL}/ajaxop', expect_json=True, params=params, headers=headers).json()
 
     def _get_confirmations(self) -> List[Confirmation]:
         confirmations = []
@@ -115,7 +70,7 @@ class ConfirmationExecutor:
         tag = Tag.CONF.value
         params = self._create_confirmation_params(tag)
         headers = {'X-Requested-With': 'com.valvesoftware.android.steam.community'}
-        response = self._safe_get(f'{self.CONF_URL}/getlist', params=params, headers=headers)
+        response = self._session.safe_get(f'{self.CONF_URL}/getlist', expect_json=False, params=params, headers=headers)
         if 'Steam Guard Mobile Authenticator is providing incorrect Steam Guard codes.' in response.text:
             raise InvalidCredentials('Invalid Steam Guard file')
         return response
@@ -128,8 +83,8 @@ class ConfirmationExecutor:
     def _fetch_confirmation_details_page(self, confirmation: Confirmation) -> str:
         tag = f'details{confirmation.data_confid}'
         params = self._create_confirmation_params(tag)
-        response = self._safe_get(f'{self.CONF_URL}/details/{confirmation.data_confid}', params=params, is_json=True)
-        return response.json()['html']
+        response = self._session.safe_get(f'{self.CONF_URL}/details/{confirmation.data_confid}', expect_json=True, params=params, headers={})
+        return response.json()
 
     def _create_confirmation_params(self, tag_string: str) -> dict:
         timestamp = int(time.time())
