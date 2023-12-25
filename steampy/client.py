@@ -41,7 +41,7 @@ class SteamClient:
         proxy_setting_file: str = None
     ) -> None:
         self._api_key = api_key
-        self._session = SafeSession()
+        self._session = SafeSession(proxy_setting_file)
         self._session.headers.update(ua_header)
 
         if proxies:
