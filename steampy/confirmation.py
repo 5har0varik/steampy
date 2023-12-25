@@ -2,6 +2,7 @@ import enum
 import json
 import time
 from typing import List
+from http import HTTPStatus
 
 import requests
 from bs4 import BeautifulSoup
@@ -25,26 +26,35 @@ class Tag(enum.Enum):
 
 
 class ConfirmationExecutor:
-    CONF_URL = "https://steamcommunity.com/mobileconf"
+    CONF_URL = 'https://steamcommunity.com/mobileconf'
 
     def __init__(self, identity_secret: str, my_steam_id: str, session: requests.Session) -> None:
         self._my_steam_id = my_steam_id
         self._identity_secret = identity_secret
         self._session = session
 
-    def _safe_get(self, url, params, headers, use_proxy=False):
-        response = type('obj', (object,), {'status_code': None, 'text': None})
+    def _safe_get(self, url, params, headers, use_proxy=False, is_json=False):
+        class MockResponse:
+            def __init__(self, json_data, status_code):
+                self.json_data = json_data
+                self.status_code = status_code
+
+            def json(self):
+                return self.json_data
+
+        resp = type('obj', (object,), {'status_code': None, 'text': None})
         pause_time = 0
-        for i in range(100):
+        repeats = 10
+        for i in range(repeats):
             if use_proxy:
                 proxy = {}  #self.proxy.get_proxy()
             else:
                 proxy = {}
             print(proxy)
             try:
-                response = self._session.get(url, params=params, headers=headers, proxies=proxy)
+                resp = self._session.get(url, params=params, headers=headers, proxies=proxy)
                 pause_time += 1
-                response.raise_for_status()
+                resp.raise_for_status()
             except requests.exceptions.HTTPError as errh:
                 print("Steampy Http Error:", errh)
                 time.sleep(pause_time)
@@ -57,18 +67,17 @@ class ConfirmationExecutor:
                 print("Steampy Timeout Error:", errt)
                 time.sleep(pause_time)
                 continue
-            except requests.exceptions.SSLError as errs:
-                print("Steampy SSL Error:", errs)
-                time.sleep(pause_time)
-                continue
-            break
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError as errj:
-            print("Steampy JSON Error:", errj)
-            time.sleep(1)
-            response = type('obj', (object,), {'status_code': None, 'text': None})
-        return response
+
+            if is_json:
+                try:
+                    data = resp.json()
+                except requests.exceptions.JSONDecodeError as errj:
+                    print("Steampy JSON Error:", errj)
+                    time.sleep(pause_time)
+                    continue
+            return resp
+        resp = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
+        return resp
 
     def send_trade_allow_request(self, trade_offer_id: str) -> dict:
         confirmations = self._get_confirmations()
@@ -83,16 +92,16 @@ class ConfirmationExecutor:
     def _send_confirmation(self, confirmation: Confirmation) -> dict:
         tag = Tag.ALLOW
         params = self._create_confirmation_params(tag.value)
-        params['op'] = tag.value,
+        params['op'] = (tag.value,)
         params['cid'] = confirmation.data_confid
         params['ck'] = confirmation.nonce
         headers = {'X-Requested-With': 'XMLHttpRequest'}
-        return self._session.get(self.CONF_URL + '/ajaxop', params=params, headers=headers).json()
+        return self._safe_get(f'{self.CONF_URL}/ajaxop', params=params, headers=headers, is_json=True).json()
 
     def _get_confirmations(self) -> List[Confirmation]:
         confirmations = []
         confirmations_page = self._fetch_confirmations_page()
-        if confirmations_page.status_code == 200:
+        if confirmations_page.status_code == HTTPStatus.OK:
             confirmations_json = json.loads(confirmations_page.text)
             for conf in confirmations_json['conf']:
                 data_confid = conf['id']
@@ -106,7 +115,7 @@ class ConfirmationExecutor:
         tag = Tag.CONF.value
         params = self._create_confirmation_params(tag)
         headers = {'X-Requested-With': 'com.valvesoftware.android.steam.community'}
-        response = self._session.get(self.CONF_URL + '/getlist', params=params, headers=headers)
+        response = self._safe_get(f'{self.CONF_URL}/getlist', params=params, headers=headers)
         if 'Steam Guard Mobile Authenticator is providing incorrect Steam Guard codes.' in response.text:
             raise InvalidCredentials('Invalid Steam Guard file')
         return response
@@ -117,21 +126,23 @@ class ConfirmationExecutor:
     #     response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
     #     return response.json()
     def _fetch_confirmation_details_page(self, confirmation: Confirmation) -> str:
-        tag = 'details' + confirmation.data_confid
+        tag = f'details{confirmation.data_confid}'
         params = self._create_confirmation_params(tag)
-        response = self._session.get(self.CONF_URL + '/details/' + confirmation.data_confid, params=params)
-        return response.json()
+        response = self._safe_get(f'{self.CONF_URL}/details/{confirmation.data_confid}', params=params, is_json=True)
+        return response.json()['html']
 
     def _create_confirmation_params(self, tag_string: str) -> dict:
         timestamp = int(time.time())
         confirmation_key = guard.generate_confirmation_key(self._identity_secret, tag_string, timestamp)
         android_id = guard.generate_device_id(self._my_steam_id)
-        return {'p': android_id,
-                'a': self._my_steam_id,
-                'k': confirmation_key,
-                't': timestamp,
-                'm': 'android',
-                'tag': tag_string}
+        return {
+            'p': android_id,
+            'a': self._my_steam_id,
+            'k': confirmation_key,
+            't': timestamp,
+            'm': 'android',
+            'tag': tag_string,
+        }
 
     def _select_trade_offer_confirmation(self, confirmations: List[Confirmation], trade_offer_id: str) -> Confirmation:
         for confirmation in confirmations:
@@ -187,8 +198,8 @@ class ConfirmationExecutor:
             return ""
         scr_raw = soup.select("script")[2].string.strip()
         scr_raw = scr_raw[scr_raw.index("'confiteminfo', ") + 16:]
-        scr_raw = scr_raw[:scr_raw.index(", UserYou")].replace("\n", "")
-        return json.loads(scr_raw)["id"]
+        scr_raw = scr_raw[: scr_raw.index(', UserYou')].replace('\n', '')
+        return json.loads(scr_raw)['id']
 
     @staticmethod
     def _get_confirmation_trade_offer_id(confirmation_details_page: str) -> str:
