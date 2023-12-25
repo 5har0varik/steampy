@@ -42,11 +42,11 @@ class ProxyCarousel:
         self.last_proxy_usage_time = {proxy: 0 for proxy in self.proxy_list}
         self.current_proxy = None
 
-    def get_next_proxy(self, force_change=False):
+    def get_next_proxy(self, is_forced=False):
         # FIXME: this is complete nonsence
         while True:
             # Get the next proxy in the cycle
-            if force_change:
+            if is_forced:
                 self.proxy_usage_count[self.current_proxy] = 0
                 next_proxy = next(self.proxy_cycle)
 
@@ -65,8 +65,9 @@ class ProxyCarousel:
             self.update_current_proxy()
         return self.current_proxy
 
-    def update_current_proxy(self):
-        self.current_proxy = self.get_next_proxy()
+    def update_current_proxy(self, is_forced=False):
+        self.current_proxy = self.get_next_proxy(is_forced)
+        return self.current_proxy
 
 
 class SafeSession(requests.Session):
@@ -75,7 +76,7 @@ class SafeSession(requests.Session):
         self.proxy_carousel = proxy_carousel
 
     @retry(
-        retry_on_exception=lambda e, use_proxy: (
+        retry_on_exception=lambda e: (
                 isinstance(e, (
                             json.JSONDecodeError,
                             requests.exceptions.RequestException,
