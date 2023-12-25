@@ -5,9 +5,8 @@ import time
 import urllib.parse as urlparse
 from typing import List, Union
 from decimal import Decimal
-
 import requests
-from requests import Session, exceptions
+
 from steampy import guard
 from steampy.confirmation import ConfirmationExecutor
 from steampy.exceptions import SevenDaysHoldException, ApiException
@@ -26,8 +25,8 @@ from steampy.utils import (
     get_key_value_from_url,
     ping_proxy,
     login_required,
+    SafeSession
 )
-
 
 class SteamClient:
     def __init__(
@@ -40,7 +39,7 @@ class SteamClient:
         proxies: dict = None,
     ) -> None:
         self._api_key = api_key
-        self._session = requests.Session()
+        self._session = SafeSession()
 
         if proxies:
             self.set_proxies(proxies)
@@ -58,110 +57,6 @@ class SteamClient:
 
         if login_cookies:
             self.set_login_cookies(login_cookies)
-
-    def _safe_get(self, url, params=None, headers=None, use_proxy=False, is_json=False):
-        class MockResponse:
-            def __init__(self, json_data, status_code):
-                self.json_data = json_data
-                self.status_code = status_code
-
-            def json(self):
-                return self.json_data
-
-        repeats = 10
-        if headers is None:
-            headers = {}
-        if params is None:
-            params = {}
-        resp = type('obj', (object,), {'status_code': None, 'text': None})
-        pause_time = 0
-        for i in range(repeats):
-            if use_proxy:
-                proxy = self.proxy.get_proxy()
-            else:
-                proxy = {}
-            try:
-                resp = self._session.get(url, params=params, proxies=proxy, headers=headers)
-                pause_time += 1
-                resp.raise_for_status()
-            except exceptions.HTTPError as errh:
-                print("Steampy Http Error:", errh)
-                if errh.response.status_code == requests.codes.TOO_MANY_REQUESTS:
-                    resp = MockResponse({"status_code": errh.response.status_code}, errh.response.status_code)
-                    return resp
-                time.sleep(pause_time)
-                continue
-            except exceptions.ConnectionError as errc:
-                print("Steampy Error Connecting:", errc)
-                time.sleep(pause_time)
-                continue
-            except exceptions.Timeout as errt:
-                print("Steampy Timeout Error:", errt)
-                time.sleep(pause_time)
-                continue
-            if is_json:
-                try:
-                    data = resp.json()
-                except exceptions.JSONDecodeError as errj:
-                    print("Steampy JSON Error:", errj)
-                    time.sleep(pause_time)
-                    continue
-            return resp
-        resp = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
-        return resp
-
-    def _safe_post(self, url, params=None, headers=None, data=None, use_proxy=False, is_json=False):
-        class MockResponse:
-            def __init__(self, json_data, status_code):
-                self.json_data = json_data
-                self.status_code = status_code
-
-            def json(self):
-                return self.json_data
-
-        repeats = 10
-        if headers is None:
-            headers = {}
-        if params is None:
-            params = {}
-        if data is None:
-            data = {}
-        resp = type('obj', (object,), {'status_code': None, 'text': None})
-        pause_time = 0
-        for i in range(repeats):
-            if use_proxy:
-                proxy = self.proxy.get_proxy()
-            else:
-                proxy = {}
-            try:
-                resp = self._session.post(url, data=data, params=params, proxies=proxy, headers=headers)
-                pause_time += 1
-                resp.raise_for_status()
-            except exceptions.HTTPError as errh:
-                print("Steampy Http Error:", errh)
-                if errh.response.status_code == requests.codes.TOO_MANY_REQUESTS:
-                    resp = MockResponse({"status_code": errh.response.status_code}, errh.response.status_code)
-                    return resp
-                time.sleep(pause_time)
-                continue
-            except exceptions.ConnectionError as errc:
-                print("Steampy Error Connecting:", errc)
-                time.sleep(pause_time)
-                continue
-            except exceptions.Timeout as errt:
-                print("Steampy Timeout Error:", errt)
-                time.sleep(pause_time)
-                continue
-            if is_json:
-                try:
-                    data = resp.json()
-                except exceptions.JSONDecodeError as errj:
-                    print("Steampy JSON Error:", errj)
-                    time.sleep(pause_time)
-                    continue
-            return resp
-        resp = MockResponse({"status_code": "Tried for " + str(repeats) + " times"}, 404)
-        return resp
 
     def set_proxies(self, proxies: dict) -> dict:
         if not isinstance(proxies, dict):
@@ -244,8 +139,8 @@ class SteamClient:
         self, method: str, interface: str, api_method: str, version: str, params: dict = None
     ) -> requests.Response:
         url = '/'.join((SteamUrl.API_URL, interface, api_method, version))
-        response = self._safe_get(url, params=params, is_json=True) if method == 'GET' else \
-            self._safe_post(url, data=params, is_json=True)
+        response = self._session.safe_get(url, expect_json=True, params=params) if method == 'GET' else \
+            self._session.safe_post(url, expect_json=True, data=params)
         if self.is_invalid_api_key(response):
             raise InvalidCredentials('Invalid API key')
 
@@ -268,7 +163,7 @@ class SteamClient:
         url = '/'.join((SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id))
         params = {'l': 'english', 'count': count}
 
-        response = self._safe_get(url, params=params, use_proxy=use_proxy, is_json=True)
+        response = self._session.safe_get(url, expect_json=True, params=params)
         response_dict = response.json()
         if response.status_code == requests.codes.TOO_MANY_REQUESTS:
             print("Banned")
@@ -351,7 +246,7 @@ class SteamClient:
 
     @login_required
     def get_trade_receipt(self, trade_id: str):
-        html = self._safe_get(f'https://steamcommunity.com/trade/{trade_id}/receipt', is_json=False).content.decode()
+        html = self._session.safe_get(f'https://steamcommunity.com/trade/{trade_id}/receipt', expect_json=False).content.decode()
         items = [json.loads(item) for item in texts_between(html, 'oItem = ', ';\r\n\toItem')]
         return items
 
@@ -382,7 +277,7 @@ class SteamClient:
 
     def _fetch_trade_partner_id(self, trade_offer_id: str) -> str:
         url = self._get_trade_offer_url(trade_offer_id)
-        offer_response_text = self._safe_get(url, is_json=False).text
+        offer_response_text = self._session.safe_get(url, expect_json=False).text
         if 'You have logged in from a new device. In order to protect the items' in offer_response_text:
             raise SevenDaysHoldException("Account has logged in a new device and can't trade for 7 days")
 
@@ -464,7 +359,7 @@ class SteamClient:
             'Referer': f'{SteamUrl.COMMUNITY_URL}{urlparse.urlparse(trade_offer_url).path}',
             'Origin': SteamUrl.COMMUNITY_URL,
         }
-        response = self._safe_get(trade_offer_url, headers=headers, is_json=False).text
+        response = self._session.safe_get(trade_offer_url, expect_json=False, headers=headers).text
 
         my_escrow_duration = int(text_between(response, 'var g_daysMyEscrow = ', ';'))
         their_escrow_duration = int(text_between(response, 'var g_daysTheirEscrow = ', ';'))
@@ -502,7 +397,7 @@ class SteamClient:
             'Referer': f'{SteamUrl.COMMUNITY_URL}{urlparse.urlparse(trade_offer_url).path}',
             'Origin': SteamUrl.COMMUNITY_URL,
         }
-        response = self._safe_post(url, data=params, headers=headers).json()
+        response = self._session.safe_post(url, expect_json=True, data=params, headers=headers).json()
         if response.get('needs_mobile_confirmation'):
             response.update(self._confirm_transaction(response['tradeofferid']))
 
@@ -515,7 +410,7 @@ class SteamClient:
     @login_required
     # If convert_to_decimal = False, the price will be returned WITHOUT a decimal point.
     def get_wallet_balance(self, convert_to_decimal: bool = True, on_hold: bool = False) -> Union[str, Decimal]:
-        response = self._safe_get(f'{SteamUrl.COMMUNITY_URL}/market', is_json=False)
+        response = self._session.safe_get(f'{SteamUrl.COMMUNITY_URL}/market', expect_json=False)
         wallet_info_match = re.search(r'var g_rgWalletInfo = (.*?);', response.text)
         attempts = 5
         while wallet_info_match or (attempts == 0):
@@ -531,6 +426,6 @@ class SteamClient:
                 attempts =- 1
                 print(response.text)
                 time.sleep(20)
-                response = self._safe_get(f'{SteamUrl.COMMUNITY_URL}/market', is_json=False)
+                response = self._session.safe_get(f'{SteamUrl.COMMUNITY_URL}/market', expect_json=False)
                 wallet_info_match = re.search(r'var g_rgWalletInfo = (.*?);', response.text)
         raise Exception('Unable to get wallet balance string match')

@@ -3,16 +3,63 @@ import re
 import copy
 import math
 import struct
+import json
 from typing import List
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs
 
 import requests
+from retrying import retry
 from bs4 import BeautifulSoup, Tag
 from requests.structures import CaseInsensitiveDict
 
 from steampy.models import GameOptions
 from steampy.exceptions import ProxyConnectionError, LoginRequired
+
+
+class SafeSession(requests.Session):
+    @retry(
+        retry_on_exception=lambda e: (
+                isinstance(e, (
+                        json.JSONDecodeError,
+                        requests.exceptions.RequestException,
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout
+                )) or (isinstance(e, requests.exceptions.HTTPError) and e.response.status_code != 427)
+        ),
+        stop_max_attempt_number=100,  # Number of maximum attempts
+        wait_fixed=2000
+    )
+    def _safe_get_post(self, url, expect_json=True, is_get=True, **kwargs):
+        try:
+            response = self.get(url, **kwargs) if is_get else self.post(url, **kwargs)
+            response.raise_for_status()  # Raises HTTPError for bad responses
+
+            # Check if the response content is JSON if expected
+            if expect_json:
+                try:
+                    json_content = response.json()
+                    # If parsing as JSON is successful, return the JSON content
+                    return response
+                except json.JSONDecodeError:
+                    # If parsing as JSON fails, raise an exception to trigger the retry
+                    raise requests.exceptions.RequestException("Invalid JSON content")
+            else:
+                # If not expecting JSON, return the plain text content without retrying
+                return response
+        except requests.exceptions.RequestException as e:
+            # Handle exceptions (e.g., ConnectionError, Timeout, HTTPError)
+            if expect_json:
+                print(f"Error during GET request or invalid JSON content: {e}")
+            else:
+                print(f"Error during GET request: {e}")
+            raise  # Reraise the exception to trigger the retry
+
+    def safe_post(self, url, expect_json=True, **kwargs):
+        return self._safe_get_post(url, expect_json=expect_json, is_get=False, **kwargs)
+
+    def safe_get(self, url, expect_json=True, **kwargs):
+        return self._safe_get_post(url, expect_json=expect_json, is_get=True, **kwargs)
 
 
 def login_required(func):
