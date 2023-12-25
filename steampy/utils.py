@@ -4,7 +4,7 @@ import copy
 import math
 import struct
 import json
-import time
+import datetime
 from typing import List
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs
@@ -39,26 +39,29 @@ class ProxyCarousel:
         self.cooldown_after_427 = cooldown_after_427
         self.proxy_cycle = cycle(self.proxy_list)
         self.proxy_usage_count = {proxy: 0 for proxy in self.proxy_list}
-        self.last_proxy_usage_time = {proxy: 0 for proxy in self.proxy_list}
+        self.ban_proxy_time = {proxy: 0 for proxy in self.proxy_list}
         self.current_proxy = None
 
     def get_next_proxy(self, is_forced=False):
         # FIXME: this is complete nonsence
         while True:
             # Get the next proxy in the cycle
+            next_proxy = self.current_proxy
             if is_forced:
-                self.proxy_usage_count[self.current_proxy] = 0
+                self.proxy_usage_count[next_proxy] = 0
+                self.ban_proxy_time[next_proxy] = datetime.datetime.now().timestamp()
                 next_proxy = next(self.proxy_cycle)
 
             # Check if the proxy can be used based on the usage count and cooldown time
-            current_time = time.time()
-            if self.proxy_usage_count[next_proxy] < self.max_usage:
+
+            if (datetime.datetime.now().timestamp() - self.ban_proxy_time[next_proxy] < self.cooldown_after_427) and \
+                    (self.proxy_usage_count[next_proxy] < self.max_usage):
                 self.proxy_usage_count[next_proxy] += 1
-                self.last_proxy_usage_time[next_proxy] = current_time
                 return next_proxy
             else:
                 # If the proxy has reached its usage limit, try the next one
                 print(f"Proxy {next_proxy} reached usage limit. Trying the next one.")
+                is_forced = True
 
     def get_current_proxy(self):
         if self.current_proxy is None:
@@ -111,9 +114,9 @@ class SafeSession(requests.Session):
                 return response
         except requests.exceptions.RequestException as e:
             # Handle exceptions (e.g., ConnectionError, Timeout, HTTPError)
-            if e.response.status_code == 427 or e.response.status_code == 429:
+            if e.response.status_code == 427 or e.response.status_code == 429 or e.response.status_code == 500:
                 if not use_proxy:
-                    print("Too many requests")
+                    print("Too many requests or 500")
                     return response
                 else:
                     self.proxy_carousel.update_current_proxy()
