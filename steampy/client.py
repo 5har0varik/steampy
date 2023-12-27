@@ -166,7 +166,7 @@ class SteamClient:
         url = '/'.join((SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id))
         params = {'l': 'english', 'count': count}
 
-        response = self._session.safe_get(url, expect_json=True, params=params)
+        response = self._session.safe_get(url, expect_json=True, use_proxy=use_proxy, params=params)
         response_dict = response.json()
         if response.status_code == requests.codes.TOO_MANY_REQUESTS:
             print("Banned")

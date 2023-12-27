@@ -5,13 +5,14 @@ import math
 import struct
 import json
 import datetime
+import http.client
 from typing import List
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs
 
 import requests
 from itertools import cycle
-from retrying import retry
+from tenacity import retry, stop_after_attempt, retry_if_result, retry_if_exception_type, wait_fixed
 from bs4 import BeautifulSoup, Tag
 from requests.structures import CaseInsensitiveDict
 
@@ -20,7 +21,7 @@ from steampy.exceptions import ProxyConnectionError, LoginRequired
 
 
 class ProxyCarousel:
-    def __init__(self, json_filename, max_usage=5, cooldown_after_427=3600):
+    def __init__(self, json_filename, max_usage=5, cooldown_after_429=7200):
         self.proxy_list = []
         self.json_file = json_filename
         if os.path.exists(self.json_file):
@@ -31,37 +32,46 @@ class ProxyCarousel:
             for item in response.json()["results"]:
                 # https='socks5://user:pass@host:port'
                 if item['valid']:
-                    self.proxy_list.append({"https": "socks5://" + item['username'] + ':' + item['password'] + '@' +
-                                                     item['proxy_address'] + ':' + str(item['port'])})
+                    # self.proxy_list.append({"https": "socks5://" + item['username'] + ':' + item['password'] + '@' +
+                    #                                  item['proxy_address'] + ':' + str(item['port'])})
+                    self.proxy_list.append("socks5://" + item['username'] + ':' + item['password'] + '@' +
+                                                     item['proxy_address'] + ':' + str(item['port']))
         else:
             print("No json with proxy setup")
         self.max_usage = max_usage
-        self.cooldown_after_427 = cooldown_after_427
+        self.cooldown_after_429 = cooldown_after_429
         self.proxy_cycle = cycle(self.proxy_list)
         self.proxy_usage_count = {proxy: 0 for proxy in self.proxy_list}
         self.ban_proxy_time = {proxy: 0 for proxy in self.proxy_list}
-        self.current_proxy = None
+        self.current_proxy = next(self.proxy_cycle)
 
     def get_next_proxy(self, is_forced=False):
-        # FIXME: this is complete nonsence
-        while True:
+        # FIXME: we can get looped
+        refresh_proxy_count = len(self.proxy_list)
+        while refresh_proxy_count > 0:
             # Get the next proxy in the cycle
             next_proxy = self.current_proxy
             if is_forced:
                 self.proxy_usage_count[next_proxy] = 0
-                self.ban_proxy_time[next_proxy] = datetime.datetime.now().timestamp()
+                self.ban_proxy_time[next_proxy] = datetime.datetime.now().timestamp() + self.cooldown_after_429
                 next_proxy = next(self.proxy_cycle)
 
             # Check if the proxy can be used based on the usage count and cooldown time
 
-            if (datetime.datetime.now().timestamp() - self.ban_proxy_time[next_proxy] < self.cooldown_after_427) and \
+            if (self.ban_proxy_time[next_proxy] - datetime.datetime.now().timestamp() < 0) and \
                     (self.proxy_usage_count[next_proxy] < self.max_usage):
                 self.proxy_usage_count[next_proxy] += 1
+                if self.proxy_usage_count[next_proxy] >= self.max_usage:
+                    self.ban_proxy_time[next_proxy] = datetime.datetime.now().timestamp() + self.cooldown_after_429
+                    self.proxy_usage_count[next_proxy] = 0
                 return next_proxy
             else:
                 # If the proxy has reached its usage limit, try the next one
                 print(f"Proxy {next_proxy} reached usage limit. Trying the next one.")
                 is_forced = True
+                refresh_proxy_count -= 1
+        print("Looped")
+        return next_proxy
 
     def get_current_proxy(self):
         if self.current_proxy is None:
@@ -74,28 +84,49 @@ class ProxyCarousel:
 
 
 class SafeSession(requests.Session):
-    def __init__(self, proxy_carousel, *args, **kwargs):
+    def __init__(self, proxy_settings, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.proxy_carousel = proxy_carousel
+        self.proxy_carousel = ProxyCarousel(proxy_settings)
 
-    @retry(
-        retry_on_exception=lambda e: (
-                isinstance(e, (
-                            json.JSONDecodeError,
-                            requests.exceptions.RequestException,
-                            requests.exceptions.ConnectionError,
-                            requests.exceptions.Timeout,
-                            requests.exceptions.HTTPError  # Include HTTPError in the exception types
-                    ))
-        ),
-        stop_max_attempt_number=50,  # Number of maximum attempts
-        wait_fixed=2000
-    )
+    @staticmethod
+    def return_last_value(retry_state):
+        class MockResponse:
+            def __init__(self, json_data, status_code):
+                self.json_data = json_data
+                self.status_code = status_code
+
+            def json(self):
+                return self.json_data
+        """return the result of the last call attempt"""
+        try:
+            retry_state.outcome.result()
+        except Exception as e:
+            code = int(e.args[0][:e.args[0].find(" ")])
+            response = MockResponse({"status_code": code}, code)
+        return response
+
+    @staticmethod
+    def is_false(value):
+        """Return True if value is False"""
+        return value is False
+
+    @retry(stop=stop_after_attempt(5),
+           wait=wait_fixed(5),
+           retry_error_callback=return_last_value,
+           retry=(retry_if_result(is_false) |
+                  retry_if_exception_type(json.JSONDecodeError) |
+                  retry_if_exception_type(requests.exceptions.RequestException) |
+                  retry_if_exception_type(requests.exceptions.ConnectionError) |
+                  retry_if_exception_type(requests.exceptions.Timeout) |
+                  retry_if_exception_type(requests.exceptions.HTTPError) |
+                  retry_if_exception_type(http.client.HTTPException))
+           )
     def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
         try:
             if use_proxy:
                 proxy = self.proxy_carousel.get_current_proxy()
                 kwargs['proxies'] = {'http': proxy, 'https': proxy}
+                print("Using proxy")
 
             response = self.get(url, **kwargs) if is_get else self.post(url, **kwargs)
             response.raise_for_status()  # Raises HTTPError for bad responses
@@ -114,23 +145,24 @@ class SafeSession(requests.Session):
                 return response
         except requests.exceptions.RequestException as e:
             # Handle exceptions (e.g., ConnectionError, Timeout, HTTPError)
-            if e.response.status_code == 427 or e.response.status_code == 429 or e.response.status_code == 500:
+            if e.response.status_code == 429:
                 if not use_proxy:
-                    print("Too many requests or 500")
+                    print("Too many requests")
                     return response
                 else:
-                    self.proxy_carousel.update_current_proxy()
+                    print("Too many requests with proxy. Change proxy")
+                    self.proxy_carousel.update_current_proxy(True)
             if expect_json:
                 print(f"Error during GET request or invalid JSON content: {e}")
             else:
                 print(f"Error during GET request: {e}")
             raise  # Reraise the exception to trigger the retry
 
-    def safe_post(self, url, expect_json=True, **kwargs):
-        return self._safe_get_post(url, expect_json=expect_json, is_get=False, **kwargs)
+    def safe_post(self, url, expect_json=True, use_proxy=False, **kwargs):
+        return self._safe_get_post(url, expect_json=expect_json, is_get=False, use_proxy=use_proxy, **kwargs)
 
-    def safe_get(self, url, expect_json=True, **kwargs):
-        return self._safe_get_post(url, expect_json=expect_json, is_get=True, **kwargs)
+    def safe_get(self, url, expect_json=True, use_proxy=False, **kwargs):
+        return self._safe_get_post(url, expect_json=expect_json, is_get=True, use_proxy=use_proxy, **kwargs)
 
 
 def login_required(func):

@@ -22,6 +22,6 @@ setup(
         "requests",
         "beautifulsoup4",
         "rsa",
-        "retrying"
+        "tenacity"
     ],
 )
