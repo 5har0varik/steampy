@@ -98,6 +98,7 @@ class SafeSession(requests.Session):
             def json(self):
                 return self.json_data
         """return the result of the last call attempt"""
+        response = MockResponse({"status_code": 404}, 404)
         try:
             retry_state.outcome.result()
         except Exception as e:
@@ -110,16 +111,17 @@ class SafeSession(requests.Session):
         """Return True if value is False"""
         return value is False
 
-    @retry(stop=stop_after_attempt(5),
+    @retry(stop=stop_after_attempt(20),
            wait=wait_fixed(5),
            retry_error_callback=return_last_value,
            retry=(retry_if_result(is_false) |
-                  retry_if_exception_type(json.JSONDecodeError) |
-                  retry_if_exception_type(requests.exceptions.RequestException) |
-                  retry_if_exception_type(requests.exceptions.ConnectionError) |
-                  retry_if_exception_type(requests.exceptions.Timeout) |
-                  retry_if_exception_type(requests.exceptions.HTTPError) |
-                  retry_if_exception_type(http.client.HTTPException))
+                  retry_if_exception_type((json.JSONDecodeError,
+                                           requests.exceptions.RequestException,
+                                           requests.exceptions.ConnectionError,
+                                           requests.exceptions.Timeout,
+                                           requests.exceptions.HTTPError,
+                                           http.client.HTTPException,
+                                           http.client.RemoteDisconnected)))
            )
     def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
         try:
