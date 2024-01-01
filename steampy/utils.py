@@ -49,6 +49,7 @@ class ProxyCarousel:
         # FIXME: we can get looped
         refresh_proxy_count = len(self.proxy_list)
         while refresh_proxy_count > 0:
+            print(refresh_proxy_count)
             # Get the next proxy in the cycle
             next_proxy = self.current_proxy
             if is_forced:
@@ -126,9 +127,9 @@ class SafeSession(requests.Session):
     def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
         try:
             if use_proxy:
+                print(self.proxy_carousel.get_current_proxy())
                 proxy = self.proxy_carousel.get_current_proxy()
                 kwargs['proxies'] = {'http': proxy, 'https': proxy}
-                print("Using proxy")
 
             response = self.get(url, **kwargs) if is_get else self.post(url, **kwargs)
             response.raise_for_status()  # Raises HTTPError for bad responses
@@ -147,7 +148,7 @@ class SafeSession(requests.Session):
                 return response
         except requests.exceptions.RequestException as e:
             # Handle exceptions (e.g., ConnectionError, Timeout, HTTPError)
-            if e.response.status_code == 429:
+            if e.response is not None and e.response.status_code == 429:
                 if not use_proxy:
                     print("Too many requests")
                     return response
