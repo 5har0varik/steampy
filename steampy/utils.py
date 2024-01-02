@@ -88,6 +88,9 @@ class SafeSession(requests.Session):
     def __init__(self, proxy_settings, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.proxy_carousel = ProxyCarousel(proxy_settings)
+        self.ban_time = 0
+        self.cooldown_427 = 1800
+
 
     @staticmethod
     def return_last_value(retry_state):
@@ -112,9 +115,16 @@ class SafeSession(requests.Session):
         """Return True if value is False"""
         return value is False
 
+    @staticmethod
+    def change_parameter(new_param):
+        def _set_parameter(retry_state):
+            retry_state.kwargs['retry_429'] = new_param
+        return _set_parameter
+
     @retry(stop=stop_after_attempt(20),
            wait=wait_fixed(5),
            retry_error_callback=return_last_value,
+           after=change_parameter(True),
            retry=(retry_if_result(is_false) |
                   retry_if_exception_type((json.JSONDecodeError,
                                            requests.exceptions.RequestException,
@@ -124,9 +134,11 @@ class SafeSession(requests.Session):
                                            http.client.HTTPException,
                                            http.client.RemoteDisconnected)))
            )
-    def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
+    def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, retry_429=False, **kwargs):
         try:
-            if use_proxy:
+            if self.ban_time - datetime.datetime.now().timestamp() > 0:
+                retry_429 = True
+            if use_proxy or retry_429:
                 print(self.proxy_carousel.get_current_proxy())
                 proxy = self.proxy_carousel.get_current_proxy()
                 kwargs['proxies'] = {'http': proxy, 'https': proxy}
@@ -151,7 +163,9 @@ class SafeSession(requests.Session):
             if e.response is not None and e.response.status_code == 429:
                 if not use_proxy:
                     print("Too many requests")
-                    return response
+                    self.ban_time = datetime.datetime.now().timestamp() + self.cooldown_427
+                    if retry_429:
+                        self.proxy_carousel.update_current_proxy(True)
                 else:
                     print("Too many requests with proxy. Change proxy")
                     self.proxy_carousel.update_current_proxy(True)
