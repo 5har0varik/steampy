@@ -288,7 +288,7 @@ class SteamMarket:
     def get_latest_trade_hist(self, request_size=10, request_start=0):
         headers = {"Referer": SteamUrl.COMMUNITY_URL + "/market"}
         response = None
-        url = "%s/market/myhistory/?query=&start=%s&count=%s" % \
+        url = "%s/market/myhistory/render/?query=&start=%s&count=%s" % \
               (SteamUrl.COMMUNITY_URL, str(request_start), str(request_size))
         response = None
         attempts = 5
