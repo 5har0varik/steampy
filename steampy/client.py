@@ -335,6 +335,35 @@ class SteamClient:
                 response.update(self._confirm_transaction(response['tradeofferid']))
         return response
 
+    @login_required
+    def make_counter_offer(
+        self, items_from_me: List[Asset], items_from_them: List[Asset], partner_steam_id: str, order_id: str,
+            message: str = '') -> dict:
+        offer = self._create_offer_dict(items_from_me, items_from_them)
+        session_id = self._get_session_id()
+        url = f'{SteamUrl.COMMUNITY_URL}/tradeoffer/new/send'
+        server_id = 1
+        params = {
+            'sessionid': session_id,
+            'serverid': server_id,
+            'partner': partner_steam_id,
+            'tradeoffermessage': message,
+            'json_tradeoffer': json.dumps(offer),
+            'captcha': '',
+            'trade_offer_create_params': '{}',
+            'tradeofferid_countered': order_id,
+        }
+        partner_account_id = steam_id_to_account_id(partner_steam_id)
+        headers = {
+            'Referer': f'{SteamUrl.COMMUNITY_URL}/tradeoffer/{order_id}',
+            'Origin': SteamUrl.COMMUNITY_URL,
+        }
+
+        response = self._session.post(url, data=params, headers=headers).json()
+        if response.get('needs_mobile_confirmation'):
+            response.update(self._confirm_transaction(response['tradeofferid']))
+        return response
+
     def get_profile(self, steam_id: str) -> dict:
         params = {'steamids': steam_id, 'key': self._api_key}
         response = self.api_call('GET', 'ISteamUser', 'GetPlayerSummaries', 'v0002', params)
