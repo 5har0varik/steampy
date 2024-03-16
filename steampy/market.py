@@ -301,7 +301,7 @@ class SteamMarket:
         url = "%s/market/myhistory/render/?query=&start=%s&count=%s" % \
               (SteamUrl.COMMUNITY_URL, str(request_start), str(request_size))
         response = None
-        attempts = 5
+        attempts = 10
         while attempts > 0:
             response = self._session.safe_get(url, expect_json=True, headers=headers)
             if response.json()["total_count"] == 0:
