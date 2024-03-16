@@ -169,6 +169,8 @@ class SafeSession(requests.Session):
                 else:
                     print("Too many requests with proxy. Change proxy")
                     self.proxy_carousel.update_current_proxy(True)
+            elif e.response is not None and e.response.status_code == 403:
+                return e.response
             if expect_json:
                 print(f"Error during GET request or invalid JSON content: {e}")
             else:

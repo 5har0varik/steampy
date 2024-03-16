@@ -171,6 +171,9 @@ class SteamClient:
         if response.status_code == requests.codes.TOO_MANY_REQUESTS:
             print("Banned")
             return {}
+        elif response.status_code == requests.codes.FORBIDDEN:
+            print("User banned")
+            return {}
         if response_dict is None or response_dict.get('success') != 1:
             raise ApiException('Success value should be 1.')
 
