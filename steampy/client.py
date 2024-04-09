@@ -173,7 +173,7 @@ class SteamClient:
             return {}
         elif response.status_code == requests.codes.FORBIDDEN:
             print("User banned")
-            return {}
+            return {0:{"tradable": 0}}
         if response_dict is None or response_dict.get('success') != 1:
             raise ApiException('Success value should be 1.')
 
