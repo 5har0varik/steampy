@@ -121,7 +121,7 @@ class SafeSession(requests.Session):
             retry_state.kwargs['retry_429'] = new_param
         return _set_parameter
 
-    @retry(stop=stop_after_attempt(20),
+    @retry(stop=stop_after_attempt(10),
            wait=wait_fixed(5),
            retry_error_callback=return_last_value,
            after=change_parameter(True),
