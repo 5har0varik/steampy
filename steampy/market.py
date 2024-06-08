@@ -322,9 +322,9 @@ class SteamMarket:
                 purchase_string_raw = item.find("div", class_="market_listing_listed_date_combined").getText(). \
                     replace("\t", "").replace("\n", "").replace("\r", "")
                 purchase_string = purchase_string_raw[purchase_string_raw.find(":") + 2:]
-                if "Buyer" in item.find("div", class_="market_listing_whoactedwith_name_block").getText():
+                if "-" in item.find("div", class_="market_listing_left_cell market_listing_gainorloss").getText():
                     prices.append({"action": "sell", "price": purchase_sum, "date_string": purchase_string})
-                elif "Seller" in item.find("div", class_="market_listing_whoactedwith_name_block").getText():
+                elif "+" in item.find("div", class_="market_listing_left_cell market_listing_gainorloss").getText():
                     prices.append({"action": "buy", "price": purchase_sum, "date_string": purchase_string})
 
         json_data = response.json()["assets"]
