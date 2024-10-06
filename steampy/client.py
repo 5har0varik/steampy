@@ -166,13 +166,17 @@ class SteamClient:
         url = '/'.join((SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id))
         params = {'l': 'english', 'count': count}
 
-        response = self._session.safe_get(url, expect_json=True, params=params)
+        response = self._session.safe_get(url, expect_json=True, use_proxy=use_proxy, params=params)
         response_dict = response.json()
         if response.status_code == requests.codes.TOO_MANY_REQUESTS:
             print("Banned")
             return {}
+        elif response.status_code == requests.codes.FORBIDDEN:
+            print("User banned")
+            return {0: {"tradable": 0}}
         if response_dict is None or response_dict.get('success') != 1:
-            raise ApiException('Success value should be 1.')
+            print("Was unable to get inv after multiple attempts")
+            return {0: {"tradable": 0}}
 
         return merge_items_with_descriptions_from_inventory(response_dict, game) if merge else response_dict
 
@@ -333,6 +337,35 @@ class SteamClient:
                 print("Waiting mobile confirmation")
                 time.sleep(5)
                 response.update(self._confirm_transaction(response['tradeofferid']))
+        return response
+
+    @login_required
+    def make_counter_offer(
+        self, items_from_me: List[Asset], items_from_them: List[Asset], partner_steam_id: str, order_id: str,
+            message: str = '') -> dict:
+        offer = self._create_offer_dict(items_from_me, items_from_them)
+        session_id = self._get_session_id()
+        url = f'{SteamUrl.COMMUNITY_URL}/tradeoffer/new/send'
+        server_id = 1
+        params = {
+            'sessionid': session_id,
+            'serverid': server_id,
+            'partner': partner_steam_id,
+            'tradeoffermessage': message,
+            'json_tradeoffer': json.dumps(offer),
+            'captcha': '',
+            'trade_offer_create_params': '{}',
+            'tradeofferid_countered': order_id,
+        }
+        partner_account_id = steam_id_to_account_id(partner_steam_id)
+        headers = {
+            'Referer': f'{SteamUrl.COMMUNITY_URL}/tradeoffer/{order_id}',
+            'Origin': SteamUrl.COMMUNITY_URL,
+        }
+
+        response = self._session.post(url, data=params, headers=headers).json()
+        if response.get('needs_mobile_confirmation'):
+            response.update(self._confirm_transaction(response['tradeofferid']))
         return response
 
     def get_profile(self, steam_id: str) -> dict:

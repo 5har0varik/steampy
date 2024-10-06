@@ -45,6 +45,16 @@ class SteamMarket:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
 
+    def fetch_price_offer(self, item_hash_name: str, game: GameOptions, currency: str = Currency.USD) -> dict:
+        url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_hash_name + \
+              "/render/?query=&start=0&count=20&country=UA&language=english&currency=18"
+        item_market_url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_hash_name
+        headers = {'Referer': item_market_url}
+        response = self._session.safe_get(url, expect_json=True, headers=headers)
+        if response.status_code == 429:
+            raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
+        return response.json()
+
     @login_required
     def fetch_price_history(self, item_market_url: str, game: GameOptions, get_id=False) -> tuple:
         url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
@@ -288,10 +298,10 @@ class SteamMarket:
     def get_latest_trade_hist(self, request_size=10, request_start=0):
         headers = {"Referer": SteamUrl.COMMUNITY_URL + "/market"}
         response = None
-        url = "%s/market/myhistory/?query=&start=%s&count=%s" % \
+        url = "%s/market/myhistory/render/?query=&start=%s&count=%s" % \
               (SteamUrl.COMMUNITY_URL, str(request_start), str(request_size))
         response = None
-        attempts = 5
+        attempts = 10
         while attempts > 0:
             response = self._session.safe_get(url, expect_json=True, headers=headers)
             if response.json()["total_count"] == 0:
@@ -312,9 +322,9 @@ class SteamMarket:
                 purchase_string_raw = item.find("div", class_="market_listing_listed_date_combined").getText(). \
                     replace("\t", "").replace("\n", "").replace("\r", "")
                 purchase_string = purchase_string_raw[purchase_string_raw.find(":") + 2:]
-                if "Buyer" in item.find("div", class_="market_listing_whoactedwith_name_block").getText():
+                if "-" in item.find("div", class_="market_listing_left_cell market_listing_gainorloss").getText():
                     prices.append({"action": "sell", "price": purchase_sum, "date_string": purchase_string})
-                elif "Seller" in item.find("div", class_="market_listing_whoactedwith_name_block").getText():
+                elif "+" in item.find("div", class_="market_listing_left_cell market_listing_gainorloss").getText():
                     prices.append({"action": "buy", "price": purchase_sum, "date_string": purchase_string})
 
         json_data = response.json()["assets"]
@@ -331,6 +341,27 @@ class SteamMarket:
                         index += 1
 
         return items
+
+    @login_required
+    def search(self, request_start, game: GameOptions, request_size=100):
+        """Parse search"""
+        headers = {"Referer": SteamUrl.COMMUNITY_URL + "/market/search?appid=" + str(game.app_id)}
+        response = None
+        url = "%s/market/search/render/?query=&start=%s&count=%s&search_descriptions=0&sort_column=name&sort_dir=asc&appid=%s&norender=1" % \
+              (SteamUrl.COMMUNITY_URL, str(request_start), str(request_size), str(game.app_id))
+        print(url)
+        attempts = 5
+        while attempts > 0:
+            response = self._session.safe_get(url, expect_json=True, headers=headers)
+            if not response.json()["success"]:
+                time.sleep(5)
+                attempts -= 1
+            else:
+                break
+        if not response.json()["success"]:
+            raise ApiException("Problem while obtaining latest trade hist: zero size ", response.text)
+
+        return response.json()["results"]
 
     def _confirm_sell_listing(self, asset_id: str) -> dict:
         con_executor = ConfirmationExecutor(

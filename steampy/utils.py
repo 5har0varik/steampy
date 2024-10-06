@@ -4,14 +4,15 @@ import copy
 import math
 import struct
 import json
-import time
+import datetime
+import http.client
 from typing import List
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs
 
 import requests
 from itertools import cycle
-from retrying import retry
+from tenacity import retry, stop_after_attempt, retry_if_result, retry_if_exception_type, wait_fixed
 from bs4 import BeautifulSoup, Tag
 from requests.structures import CaseInsensitiveDict
 
@@ -20,7 +21,7 @@ from steampy.exceptions import ProxyConnectionError, LoginRequired
 
 
 class ProxyCarousel:
-    def __init__(self, json_filename, max_usage=5, cooldown_after_427=3600):
+    def __init__(self, json_filename, max_usage=5, cooldown_after_429=7200):
         self.proxy_list = []
         self.json_file = json_filename
         if os.path.exists(self.json_file):
@@ -31,65 +32,114 @@ class ProxyCarousel:
             for item in response.json()["results"]:
                 # https='socks5://user:pass@host:port'
                 if item['valid']:
-                    self.proxy_list.append({"https": "socks5://" + item['username'] + ':' + item['password'] + '@' +
-                                                     item['proxy_address'] + ':' + str(item['port'])})
+                    # self.proxy_list.append({"https": "socks5://" + item['username'] + ':' + item['password'] + '@' +
+                    #                                  item['proxy_address'] + ':' + str(item['port'])})
+                    self.proxy_list.append("socks5://" + item['username'] + ':' + item['password'] + '@' +
+                                                     item['proxy_address'] + ':' + str(item['port']))
         else:
             print("No json with proxy setup")
         self.max_usage = max_usage
-        self.cooldown_after_427 = cooldown_after_427
+        self.cooldown_after_429 = cooldown_after_429
         self.proxy_cycle = cycle(self.proxy_list)
         self.proxy_usage_count = {proxy: 0 for proxy in self.proxy_list}
-        self.last_proxy_usage_time = {proxy: 0 for proxy in self.proxy_list}
-        self.current_proxy = None
+        self.ban_proxy_time = {proxy: 0 for proxy in self.proxy_list}
+        self.current_proxy = next(self.proxy_cycle)
 
-    def get_next_proxy(self, force_change=False):
-        # FIXME: this is complete nonsence
-        while True:
+    def get_next_proxy(self, is_forced=False):
+        # FIXME: we can get looped
+        refresh_proxy_count = len(self.proxy_list)
+        while refresh_proxy_count > 0:
+            print(refresh_proxy_count)
             # Get the next proxy in the cycle
-            if force_change:
-                self.proxy_usage_count[self.current_proxy] = 0
+            next_proxy = self.current_proxy
+            if is_forced:
+                self.proxy_usage_count[next_proxy] = 0
+                self.ban_proxy_time[next_proxy] = datetime.datetime.now().timestamp() + self.cooldown_after_429
                 next_proxy = next(self.proxy_cycle)
 
             # Check if the proxy can be used based on the usage count and cooldown time
-            current_time = time.time()
-            if self.proxy_usage_count[next_proxy] < self.max_usage:
+
+            if (self.ban_proxy_time[next_proxy] - datetime.datetime.now().timestamp() < 0) and \
+                    (self.proxy_usage_count[next_proxy] < self.max_usage):
                 self.proxy_usage_count[next_proxy] += 1
-                self.last_proxy_usage_time[next_proxy] = current_time
+                if self.proxy_usage_count[next_proxy] >= self.max_usage:
+                    self.ban_proxy_time[next_proxy] = datetime.datetime.now().timestamp() + self.cooldown_after_429
+                    self.proxy_usage_count[next_proxy] = 0
                 return next_proxy
             else:
                 # If the proxy has reached its usage limit, try the next one
                 print(f"Proxy {next_proxy} reached usage limit. Trying the next one.")
+                is_forced = True
+                refresh_proxy_count -= 1
+        print("Looped")
+        return next_proxy
 
     def get_current_proxy(self):
         if self.current_proxy is None:
             self.update_current_proxy()
         return self.current_proxy
 
-    def update_current_proxy(self):
-        self.current_proxy = self.get_next_proxy()
+    def update_current_proxy(self, is_forced=False):
+        self.current_proxy = self.get_next_proxy(is_forced)
+        return self.current_proxy
 
 
 class SafeSession(requests.Session):
-    def __init__(self, proxy_carousel, *args, **kwargs):
+    def __init__(self, proxy_settings, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.proxy_carousel = proxy_carousel
+        self.proxy_carousel = ProxyCarousel(proxy_settings)
+        self.ban_time = 0
+        self.cooldown_427 = 1800
 
-    @retry(
-        retry_on_exception=lambda e, use_proxy: (
-                isinstance(e, (
-                            json.JSONDecodeError,
-                            requests.exceptions.RequestException,
-                            requests.exceptions.ConnectionError,
-                            requests.exceptions.Timeout,
-                            requests.exceptions.HTTPError  # Include HTTPError in the exception types
-                    ))
-        ),
-        stop_max_attempt_number=20,  # Number of maximum attempts
-        wait_fixed=2000
-    )
-    def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, **kwargs):
+
+    @staticmethod
+    def return_last_value(retry_state):
+        class MockResponse:
+            def __init__(self, json_data, status_code):
+                self.json_data = json_data
+                self.status_code = status_code
+
+            def json(self):
+                return self.json_data
+        """return the result of the last call attempt"""
+        response = MockResponse({"status_code": 404}, 404)
         try:
-            if use_proxy:
+            retry_state.outcome.result()
+        except Exception as e:
+            code = int(e.args[0][:e.args[0].find(" ")])
+            response = MockResponse({"status_code": code}, code)
+        return response
+
+    @staticmethod
+    def is_false(value):
+        """Return True if value is False"""
+        return value is False
+
+    @staticmethod
+    def change_parameter(new_param):
+        def _set_parameter(retry_state):
+            retry_state.kwargs['retry_429'] = new_param
+        return _set_parameter
+
+    @retry(stop=stop_after_attempt(10),
+           wait=wait_fixed(5),
+           retry_error_callback=return_last_value,
+           after=change_parameter(True),
+           retry=(retry_if_result(is_false) |
+                  retry_if_exception_type((json.JSONDecodeError,
+                                           requests.exceptions.RequestException,
+                                           requests.exceptions.ConnectionError,
+                                           requests.exceptions.Timeout,
+                                           requests.exceptions.HTTPError,
+                                           http.client.HTTPException,
+                                           http.client.RemoteDisconnected)))
+           )
+    def _safe_get_post(self, url, expect_json=True, is_get=True, use_proxy=False, retry_429=False, **kwargs):
+        try:
+            if self.ban_time - datetime.datetime.now().timestamp() > 0:
+                retry_429 = True
+            if use_proxy or retry_429:
+                print(self.proxy_carousel.get_current_proxy())
                 proxy = self.proxy_carousel.get_current_proxy()
                 kwargs['proxies'] = {'http': proxy, 'https': proxy}
 
@@ -110,23 +160,28 @@ class SafeSession(requests.Session):
                 return response
         except requests.exceptions.RequestException as e:
             # Handle exceptions (e.g., ConnectionError, Timeout, HTTPError)
-            if e.response.status_code == 427 or e.response.status_code == 429:
+            if e.response is not None and e.response.status_code == 429:
                 if not use_proxy:
                     print("Too many requests")
-                    return response
+                    self.ban_time = datetime.datetime.now().timestamp() + self.cooldown_427
+                    if retry_429:
+                        self.proxy_carousel.update_current_proxy(True)
                 else:
-                    self.proxy_carousel.update_current_proxy()
+                    print("Too many requests with proxy. Change proxy")
+                    self.proxy_carousel.update_current_proxy(True)
+            elif e.response is not None and e.response.status_code == 403:
+                return e.response
             if expect_json:
                 print(f"Error during GET request or invalid JSON content: {e}")
             else:
                 print(f"Error during GET request: {e}")
             raise  # Reraise the exception to trigger the retry
 
-    def safe_post(self, url, expect_json=True, **kwargs):
-        return self._safe_get_post(url, expect_json=expect_json, is_get=False, **kwargs)
+    def safe_post(self, url, expect_json=True, use_proxy=False, **kwargs):
+        return self._safe_get_post(url, expect_json=expect_json, is_get=False, use_proxy=use_proxy, **kwargs)
 
-    def safe_get(self, url, expect_json=True, **kwargs):
-        return self._safe_get_post(url, expect_json=expect_json, is_get=True, **kwargs)
+    def safe_get(self, url, expect_json=True, use_proxy=False, **kwargs):
+        return self._safe_get_post(url, expect_json=expect_json, is_get=True, use_proxy=use_proxy, **kwargs)
 
 
 def login_required(func):
@@ -329,7 +384,6 @@ def get_buy_orders_from_node(node: Tag) -> dict:
             'quantity': int(qnt_price_raw[0].strip()),
             'price': qnt_price_raw[1].strip(),
             'item_name': order.a.text,
-            'icon_url': order.select('img[class=market_listing_item_img]')[0].attrs['src'].rsplit('/', 2)[-2],
             'game_name': order.select('span[class=market_listing_game_name]')[0].text,
         }
         buy_orders_dict[order['order_id']] = order
