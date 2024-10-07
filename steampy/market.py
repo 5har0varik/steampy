@@ -1,6 +1,8 @@
 import json
 import ast
 import time
+import asyncio
+import aiohttp
 
 import bs4
 
@@ -18,13 +20,15 @@ from steampy.utils import (
     merge_items_with_descriptions_from_listing,
     get_market_sell_listings_from_api,
     login_required,
-    SafeSession
+    SafeSession,
+    AsyncSession
 )
 
 
 class SteamMarket:
-    def __init__(self, session: SafeSession) -> None:
+    def __init__(self, session: SafeSession, asyncSession: AsyncSession) -> None:
         self._session = session
+        self._async_session = asyncSession
         self._steam_guard = None
         self._session_id = None
         self.was_login_executed = False
@@ -83,7 +87,47 @@ class SteamMarket:
                 return data_string, "( Not Usable in Crafting )" in response.text, 0
         else:
             return data_string, "( Not Usable in Crafting )" in response.text
-    
+
+    async def fetch_price_history_async(self, item_market_url_list: list, game: GameOptions, get_id=False):
+        tasks = []
+        for item_market_url in item_market_url_list:
+            url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
+            tasks.append(self._async_session.async_get(url, expect_json=False))
+
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+    def fetch_price_history_async_run(self, item_market_url_list: list, game: GameOptions, get_id=False) -> list:
+        results_data = []
+        results = asyncio.run(self.fetch_price_history_async(item_market_url_list, game, get_id=False))
+        for response in results:
+            if isinstance(response, aiohttp.ClientResponseError):
+                print(response)
+                results_data.append([])
+            else:
+                data_string = ""
+                if 'var line1=' in response:
+                    data_string = text_between(response, 'var line1=', 'g_timePriceHistoryEarliest = new Date();')
+                else:
+                    if get_id:
+                        if 'Market_LoadOrderSpread' in response:
+                            id_string = text_between(response, 'Market_LoadOrderSpread( ', ' );')
+                            results_data.append(([], False, int(id_string)))
+                        else:
+                            results_data.append(([], False, 0))
+                    else:
+                        results_data.append(([], False))
+                data_string = data_string[:data_string.find(';')]
+                data_string = ast.literal_eval(data_string)
+                if get_id:
+                    if 'Market_LoadOrderSpread' in response:
+                        id_string = text_between(response, 'Market_LoadOrderSpread( ', ' );')
+                        results_data.append(( data_string, "( Not Usable in Crafting )" in response, int(id_string)))
+                    else:
+                        results_data.append(( data_string, "( Not Usable in Crafting )" in response, 0))
+                else:
+                    results_data.append(( data_string, "( Not Usable in Crafting )" in response))
+        return results_data
+
     @login_required
     def fetch_item_orders_histogram(self, item_nameid: str, item_market_url: str, currency: str = Currency.USD) -> dict:
         url = SteamUrl.COMMUNITY_URL + '/market/itemordershistogram'
@@ -98,6 +142,31 @@ class SteamMarket:
         if response.status_code == 429:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
+
+    async def fetch_item_orders_histogram_async(self, item_nameid_list: list, item_market_url_list: list, currency: str = Currency.USD):
+        tasks = []
+        for item_nameid, item_market_url in zip(item_nameid_list, item_market_url_list):
+            url = SteamUrl.COMMUNITY_URL + '/market/itemordershistogram'
+            params = {'country': 'UA',
+                  'language': 'english',
+                  'currency': currency.value,
+                  'item_nameid': item_nameid,
+                  'two_factor': '0'}
+            headers = {'Referer': item_market_url}
+            tasks.append(self._async_session.async_get(url, params=params, headers=headers))
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+
+    def fetch_item_orders_histogram_async_run(self,  item_nameid_list: list, item_market_url_list: list, currency: str = Currency.USD):
+        results = asyncio.run(self.fetch_item_orders_histogram_async(item_nameid_list, item_market_url_list))
+
+        results_data = []
+        for response in results:
+            #if response.status_code == 429:
+            #    raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
+            # results_data.append(response.json())
+            results_data.append(response)
+        return  results_data
 
     @login_required
     def get_my_market_listings(self) -> dict:
