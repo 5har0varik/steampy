@@ -4,13 +4,18 @@ import copy
 import math
 import struct
 import json
+import random
 import datetime
+import time
 import http.client
 from typing import List
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs
 
 import requests
+import aiohttp
+import logging
+import asyncio
 from itertools import cycle
 from tenacity import retry, stop_after_attempt, retry_if_result, retry_if_exception_type, wait_fixed
 from bs4 import BeautifulSoup, Tag
@@ -21,7 +26,7 @@ from steampy.exceptions import ProxyConnectionError, LoginRequired
 
 
 class ProxyCarousel:
-    def __init__(self, json_filename, max_usage=5, cooldown_after_429=7200):
+    def __init__(self, json_filename, max_usage=20, cooldown_after_429=3600):
         self.proxy_list = []
         self.json_file = json_filename
         if os.path.exists(self.json_file):
@@ -34,20 +39,25 @@ class ProxyCarousel:
                 if item['valid']:
                     # self.proxy_list.append({"https": "socks5://" + item['username'] + ':' + item['password'] + '@' +
                     #                                  item['proxy_address'] + ':' + str(item['port'])})
-                    self.proxy_list.append("socks5://" + item['username'] + ':' + item['password'] + '@' +
+                    self.proxy_list.append("http://" + item['username'] + ':' + item['password'] + '@' +
                                                      item['proxy_address'] + ':' + str(item['port']))
         else:
             print("No json with proxy setup")
+        self.sync_proxy_part = 0.95
+        self.proxy_list_async = self.proxy_list[int(len(self.proxy_list) * self.sync_proxy_part): ]
+        self.proxy_list_async_shuffled = self.proxy_list_async.copy()
+        random.shuffle(self.proxy_list_async_shuffled)
+        self.proxy_list_sync = self.proxy_list[: int(len(self.proxy_list) * self.sync_proxy_part)]
         self.max_usage = max_usage
         self.cooldown_after_429 = cooldown_after_429
-        self.proxy_cycle = cycle(self.proxy_list)
+        self.proxy_cycle = cycle(self.proxy_list_sync)
         self.proxy_usage_count = {proxy: 0 for proxy in self.proxy_list}
         self.ban_proxy_time = {proxy: 0 for proxy in self.proxy_list}
         self.current_proxy = next(self.proxy_cycle)
 
     def get_next_proxy(self, is_forced=False):
         # FIXME: we can get looped
-        refresh_proxy_count = len(self.proxy_list)
+        refresh_proxy_count = len(self.proxy_list_sync)
         while refresh_proxy_count > 0:
             print(refresh_proxy_count)
             # Get the next proxy in the cycle
@@ -83,11 +93,43 @@ class ProxyCarousel:
         self.current_proxy = self.get_next_proxy(is_forced)
         return self.current_proxy
 
+    def get_random_async_proxy(self):
+        """
+        Return a proxy that is not currently banned or in cooldown.
+        Reshuffle the list if needed and avoid banned proxies.
+        """
+        result = ""
+        current_time = time.time()
+
+        # Filter out proxies that are banned (cooldown not expired)
+        available_proxies = [
+            proxy for proxy in self.proxy_list_async_shuffled
+            if self.ban_proxy_time.get(proxy, 0) <= current_time  # Use get() to avoid KeyError
+        ]
+
+        # If the available list is empty, refresh the shuffled list
+        if len(available_proxies) == 0:
+            # Reset the shuffled list with proxies that are not banned
+            self.proxy_list_async_shuffled = [
+                proxy for proxy in self.proxy_list_async if self.ban_proxy_time.get(proxy, 0) <= current_time
+            ]
+            if len(self.proxy_list_async_shuffled) == 0:
+                raise Exception("No available proxies; all are banned or in cooldown.")
+            random.shuffle(self.proxy_list_async_shuffled)
+
+        # Pop a proxy from the shuffled list
+        result = self.proxy_list_async_shuffled.pop()
+
+        # Increment the usage count for the selected proxy
+        self.proxy_usage_count[result] += 1
+
+        return result
+
 
 class SafeSession(requests.Session):
-    def __init__(self, proxy_settings, *args, **kwargs):
+    def __init__(self, proxy_carousel, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.proxy_carousel = ProxyCarousel(proxy_settings)
+        self.proxy_carousel = proxy_carousel
         self.ban_time = 0
         self.cooldown_427 = 1800
 
@@ -182,6 +224,78 @@ class SafeSession(requests.Session):
 
     def safe_get(self, url, expect_json=True, use_proxy=False, **kwargs):
         return self._safe_get_post(url, expect_json=expect_json, is_get=True, use_proxy=use_proxy, **kwargs)
+
+
+class AsyncSession():
+    def __init__(self, timeout: float = 10, retries: int = 3, default_headers=None, proxy_carousel=None, *args, **kwargs):
+        self.proxy_carousel = proxy_carousel
+        self.timeout_ = aiohttp.ClientTimeout(total=timeout)
+        self.retries = retries
+        self.default_headers = default_headers or {}
+        kwargs['timeout'] = self.timeout_
+        self._session = None
+        # super().__init__(headers=self.default_headers, *args, **kwargs)
+
+    async def _get_session(self, *args, **kwargs):
+        if self._session is None:
+            self._session = aiohttp.ClientSession(*args, **kwargs)
+
+    async def close_aiohttp_session(self):
+        """
+        Asynchronous method to close aiohttp.ClientSession.
+        """
+        if self._session is not None:
+            print("Closing aiohttp.ClientSession...")
+            await self._session.close()
+            self._session = None
+
+    def close(self):
+        """
+        Synchronous method to close aiohttp.ClientSession using asyncio.
+        """
+        asyncio.run(self.close_aiohttp_session())
+
+    async def _async_get_post(self, url, expect_json=True, method="", proxy="", **kwargs):
+        await self._get_session()
+        proxy = self.proxy_carousel.get_random_async_proxy()
+        attempt = 0
+        while attempt < self.retries:
+            try:
+                # response = self.get(url, **kwargs) if is_get else self.post(url, **kwargs)
+                async with self._session.request(method, url, proxy=proxy, **kwargs) as response:
+                    response.raise_for_status()  # Raise exception for HTTP errors
+                    # logging.info(f"Received response status {response.status} for {method} {full_url}")
+                    if 'json' in response.headers.get('Content-Type', ''):
+                        return await response.json()
+                    return await response.text()
+
+            except aiohttp.ClientResponseError as e:
+                # Handle specific status codes
+                if e.status == 429:
+                    print("Too many requests with proxy. Change proxy")
+                    proxy = self.proxy_carousel.get_random_async_proxy()
+                elif e.status == 403:
+                    return e
+                else:
+                    print(f"HTTP error during {method} request: {e.status}")
+            except aiohttp.ClientConnectionError as e:
+                print(f"Connection error during {method} request: {e}")
+            except aiohttp.ClientTimeout as e:
+                print(f"Timeout error during {method} request: {e}")
+            except aiohttp.ClientError as e:
+                print(f"Unexpected aiohttp client error: {e}")
+            attempt += 1
+
+        if expect_json:
+            return {"status_code": 404}
+        else:
+            return ""
+
+    async def async_post(self, url, expect_json=True, proxy="", **kwargs):
+        return await self._async_get_post(url, expect_json=expect_json, method="POST", proxy=proxy, **kwargs)
+
+    async def async_get(self, url, expect_json=True, proxy="", **kwargs):
+        return await self._async_get_post(url, expect_json=expect_json, method="GET", proxy=proxy, **kwargs)
 
 
 def login_required(func):

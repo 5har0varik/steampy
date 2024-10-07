@@ -25,7 +25,9 @@ from steampy.utils import (
     get_key_value_from_url,
     ping_proxy,
     login_required,
-    SafeSession
+    SafeSession,
+    AsyncSession,
+    ProxyCarousel,
 )
 
 class SteamClient:
@@ -41,7 +43,9 @@ class SteamClient:
         proxy_setting_file: str = None
     ) -> None:
         self._api_key = api_key
-        self._session = SafeSession(proxy_setting_file)
+        self._proxy_carousel = ProxyCarousel(proxy_setting_file)
+        self._session = SafeSession(self._proxy_carousel)
+        self._async_session = AsyncSession(default_headers=ua_header,proxy_carousel=self._proxy_carousel)
         self._session.headers.update(ua_header)
 
         if proxies:
@@ -56,7 +60,7 @@ class SteamClient:
         self.was_login_executed = False
         self.username = username
         self._password = password
-        self.market = SteamMarket(self._session)
+        self.market = SteamMarket(self._session, self._async_session)
 
         if login_cookies:
             self.set_login_cookies(login_cookies)
