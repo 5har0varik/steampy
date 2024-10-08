@@ -116,6 +116,7 @@ class SteamMarket:
                             results_data.append(([], False, 0))
                     else:
                         results_data.append(([], False))
+                    continue
                 data_string = data_string[:data_string.find(';')]
                 data_string = ast.literal_eval(data_string)
                 if get_id:

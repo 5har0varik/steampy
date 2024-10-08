@@ -43,7 +43,7 @@ class ProxyCarousel:
                                                      item['proxy_address'] + ':' + str(item['port']))
         else:
             print("No json with proxy setup")
-        self.sync_proxy_part = 0.95
+        self.sync_proxy_part = 0.1
         self.proxy_list_async = self.proxy_list[int(len(self.proxy_list) * self.sync_proxy_part): ]
         self.proxy_list_async_shuffled = self.proxy_list_async.copy()
         random.shuffle(self.proxy_list_async_shuffled)
