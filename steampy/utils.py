@@ -26,7 +26,7 @@ from steampy.exceptions import ProxyConnectionError, LoginRequired
 
 
 class ProxyCarousel:
-    def __init__(self, json_filename, max_usage=20, cooldown_after_429=3600):
+    def __init__(self, json_filename, max_usage=15, cooldown_after_429=3600):
         self.proxy_list = []
         self.json_file = json_filename
         if os.path.exists(self.json_file):
