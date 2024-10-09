@@ -103,6 +103,7 @@ class SteamMarket:
             if isinstance(response, aiohttp.ClientResponseError):
                 print(response)
                 results_data.append([])
+                continue
             else:
                 data_string = ""
                 if 'var line1=' in response:
