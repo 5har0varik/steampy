@@ -100,11 +100,7 @@ class SteamMarket:
         results_data = []
         results = asyncio.run(self.fetch_price_history_async(item_market_url_list, game, get_id=False))
         for response in results:
-            if isinstance(response, aiohttp.ClientResponseError):
-                print(response)
-                results_data.append([])
-                continue
-            else:
+            if isinstance(response, str):
                 data_string = ""
                 if 'var line1=' in response:
                     data_string = text_between(response, 'var line1=', 'g_timePriceHistoryEarliest = new Date();')
@@ -128,6 +124,9 @@ class SteamMarket:
                         results_data.append(( data_string, "( Not Usable in Crafting )" in response, 0))
                 else:
                     results_data.append(( data_string, "( Not Usable in Crafting )" in response))
+            else:
+                print(response)
+                results_data.append([])
         return results_data
 
     @login_required
