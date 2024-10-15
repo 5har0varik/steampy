@@ -227,17 +227,20 @@ class SafeSession(requests.Session):
 
 
 class AsyncSession():
-    def __init__(self, timeout: float = 10, retries: int = 3, default_headers=None, proxy_carousel=None, *args, **kwargs):
+    def __init__(self, timeout: float = 10, retries: int = 3, default_headers=None, proxy_carousel=None,
+                 max_concurrency=100, *args, **kwargs):
         self.proxy_carousel = proxy_carousel
         self.timeout_ = aiohttp.ClientTimeout(total=timeout)
         self.retries = retries
+        self.backoff_factor = 0.5
         self.default_headers = default_headers or {}
+        self.semaphore = asyncio.Semaphore(max_concurrency)
         kwargs['timeout'] = self.timeout_
         self._session = None
         # super().__init__(headers=self.default_headers, *args, **kwargs)
 
     async def _get_session(self, *args, **kwargs):
-        if self._session is None:
+        if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(*args, **kwargs)
 
     async def close_aiohttp_session(self):
@@ -255,41 +258,59 @@ class AsyncSession():
         """
         asyncio.run(self.close_aiohttp_session())
 
-    async def _async_get_post(self, url, expect_json=True, method="", proxy="", **kwargs):
-        await self._get_session()
-        proxy = self.proxy_carousel.get_random_async_proxy()
-        attempt = 0
-        while attempt < self.retries:
-            try:
-                # response = self.get(url, **kwargs) if is_get else self.post(url, **kwargs)
-                async with self._session.request(method, url, proxy=proxy, **kwargs) as response:
-                    response.raise_for_status()  # Raise exception for HTTP errors
-                    # logging.info(f"Received response status {response.status} for {method} {full_url}")
-                    if 'json' in response.headers.get('Content-Type', ''):
-                        return await response.json()
-                    return await response.text()
+    async def _async_get_post(self, url, expect_json=True, method="GET", proxy="", **kwargs):
+        async with self.semaphore:  # Limit concurrency
+            await self._get_session()
+            proxy = self.proxy_carousel.get_random_async_proxy()
+            attempt = 0
 
-            except aiohttp.ClientResponseError as e:
-                # Handle specific status codes
-                if e.status == 429:
-                    print("Too many requests with proxy. Change proxy")
+            while attempt < self.retries:
+                try:
+                    async with self._session.request(method, url, proxy=proxy, **kwargs) as response:
+                        response.raise_for_status()  # Raise an exception for HTTP errors
+
+                        # Validate response content type and check for JSON if expected
+                        content_type = response.headers.get('Content-Type', '')
+                        if 'json' in content_type:
+                            json_data = await response.json()
+                            if not json_data:  # Ensure JSON is not empty
+                                logging.warning("Received empty JSON response")
+                                raise ValueError("Received empty JSON response")
+                            if 'success' in json_data and json_data['success'] != 1:
+                                logging.warning("JSON has success field but wasn't 1")
+                                raise ValueError("JSON has success field but wasn't 1")
+                            return json_data
+                        else:
+                            text_data = await response.text()
+                            if not text_data:  # Ensure text response is not empty
+                                raise ValueError("Received empty text response")
+                            return text_data
+
+                except aiohttp.ClientResponseError as e:
+                    if e.status == 429:
+                        logging.warning("Too many requests, changing proxy.")
+                        proxy = self.proxy_carousel.get_random_async_proxy()
+                    elif e.status == 403:
+                        logging.error(f"Access forbidden for {url}. Status code: {e.status}")
+                        return e  # If forbidden, return the exception
+                    else:
+                        logging.error(f"HTTP error during {method} request: {e.status}")
+
+                except aiohttp.ClientError as e:
+                    logging.warning(f"Network or client error during {method} request: {str(e)}")
                     proxy = self.proxy_carousel.get_random_async_proxy()
-                elif e.status == 403:
-                    return e
-                else:
-                    print(f"HTTP error during {method} request: {e.status}")
-            except aiohttp.ClientConnectionError as e:
-                print(f"Connection error during {method} request: {e}")
-            except aiohttp.ClientTimeout as e:
-                print(f"Timeout error during {method} request: {e}")
-            except aiohttp.ClientError as e:
-                print(f"Unexpected aiohttp client error: {e}")
-            attempt += 1
+                    await asyncio.sleep(self.backoff_factor * (2 ** attempt))  # Retry with exponential backoff
 
-        if expect_json:
-            return {"status_code": 404}
-        else:
-            return ""
+                except ValueError as e:
+                    logging.error(f"Data validation error: {str(e)}")
+
+                attempt += 1
+
+            # Final fallback after retries are exhausted
+            if expect_json:
+                return {"status_code": 404, "error": "Request failed after retries"}
+            else:
+                return "Request failed after retries"
 
     async def async_post(self, url, expect_json=True, proxy="", **kwargs):
         return await self._async_get_post(url, expect_json=expect_json, method="POST", proxy=proxy, **kwargs)
