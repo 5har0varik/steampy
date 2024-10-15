@@ -88,6 +88,7 @@ class SteamMarket:
         else:
             return data_string, "( Not Usable in Crafting )" in response.text
 
+    """
     async def fetch_price_history_async(self, item_market_url_list: list, game: GameOptions, get_id=False):
         tasks = []
         for item_market_url in item_market_url_list:
@@ -95,6 +96,78 @@ class SteamMarket:
             tasks.append(self._async_session.async_get(url, expect_json=False))
 
         return await asyncio.gather(*tasks, return_exceptions=True)
+
+    def fetch_price_history_async_run(self, item_market_url_list: list, game: GameOptions, get_id=False) -> list:
+        results_data = []
+        results = asyncio.run(self.fetch_price_history_async(item_market_url_list, game, get_id=False))
+        for response in results:
+            if isinstance(response, str):
+                data_string = ""
+                if 'var line1=' in response:
+                    data_string = text_between(response, 'var line1=', 'g_timePriceHistoryEarliest = new Date();')
+                else:
+                    if get_id:
+                        if 'Market_LoadOrderSpread' in response:
+                            id_string = text_between(response, 'Market_LoadOrderSpread( ', ' );')
+                            results_data.append(([], False, int(id_string)))
+                        else:
+                            results_data.append(([], False, 0))
+                    else:
+                        results_data.append(([], False))
+                    continue
+                data_string = data_string[:data_string.find(';')]
+                data_string = ast.literal_eval(data_string)
+                if get_id:
+                    if 'Market_LoadOrderSpread' in response:
+                        id_string = text_between(response, 'Market_LoadOrderSpread( ', ' );')
+                        results_data.append(( data_string, "( Not Usable in Crafting )" in response, int(id_string)))
+                    else:
+                        results_data.append(( data_string, "( Not Usable in Crafting )" in response, 0))
+                else:
+                    results_data.append(( data_string, "( Not Usable in Crafting )" in response))
+            else:
+                print(response)
+                results_data.append([])
+        return results_data
+    """
+
+    async def fetch_price_history_async(self, item_market_url_list: list, game: GameOptions, get_id=False):
+        tasks = []
+        for item_market_url in item_market_url_list:
+            url = SteamUrl.COMMUNITY_URL + '/market/listings/' + game.app_id + '/' + item_market_url
+            tasks.append(self._async_session.async_get(url, expect_json=False))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results_data = []
+        for response in results:
+            if isinstance(response, str):
+                data_string = ""
+                if 'var line1=' in response:
+                    data_string = text_between(response, 'var line1=', 'g_timePriceHistoryEarliest = new Date();')
+                else:
+                    if get_id:
+                        if 'Market_LoadOrderSpread' in response:
+                            id_string = text_between(response, 'Market_LoadOrderSpread( ', ' );')
+                            results_data.append(([], False, int(id_string)))
+                        else:
+                            results_data.append(([], False, 0))
+                    else:
+                        results_data.append(([], False))
+                    continue
+                data_string = data_string[:data_string.find(';')]
+                data_string = ast.literal_eval(data_string)
+                if get_id:
+                    if 'Market_LoadOrderSpread' in response:
+                        id_string = text_between(response, 'Market_LoadOrderSpread( ', ' );')
+                        results_data.append(( data_string, "( Not Usable in Crafting )" in response, int(id_string)))
+                    else:
+                        results_data.append(( data_string, "( Not Usable in Crafting )" in response, 0))
+                else:
+                    results_data.append(( data_string, "( Not Usable in Crafting )" in response))
+            else:
+                print(response)
+                results_data.append([])
+        return results_data
 
     def fetch_price_history_async_run(self, item_market_url_list: list, game: GameOptions, get_id=False) -> list:
         results_data = []
@@ -144,6 +217,7 @@ class SteamMarket:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
 
+    """
     async def fetch_item_orders_histogram_async(self, item_nameid_list: list, item_market_url_list: list, currency: str = Currency.USD):
         tasks = []
         for item_nameid, item_market_url in zip(item_nameid_list, item_market_url_list):
@@ -168,6 +242,34 @@ class SteamMarket:
             # results_data.append(response.json())
             results_data.append(response)
         return  results_data
+    """
+
+    async def fetch_item_orders_histogram_async(self, item_nameid_list: list, item_market_url_list: list,
+                                                currency: str = Currency.USD):
+        """
+        Asynchronous method to fetch item order histograms.
+        """
+        tasks = []
+        for item_nameid, item_market_url in zip(item_nameid_list, item_market_url_list):
+            url = SteamUrl.COMMUNITY_URL + '/market/itemordershistogram'
+            params = {
+                'country': 'UA',
+                'language': 'english',
+                'currency': currency.value,
+                'item_nameid': item_nameid,
+                'two_factor': '0'
+            }
+            headers = {'Referer': item_market_url}
+            tasks.append(self._async_session.async_get(url, params=params, headers=headers))
+
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+    def fetch_item_orders_histogram_async_run(self, item_nameid_list: list, item_market_url_list: list,
+                                              currency: str = Currency.USD):
+        """
+        This method should now rely on the external class to manage the event loop.
+        """
+        return self.fetch_item_orders_histogram_async(item_nameid_list, item_market_url_list, currency)
 
     @login_required
     def get_my_market_listings(self) -> dict:
