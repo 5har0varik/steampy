@@ -234,14 +234,26 @@ class AsyncSession():
         self.retries = retries
         self.backoff_factor = 0.5
         self.default_headers = default_headers or {}
-        self.semaphore = asyncio.Semaphore(max_concurrency)
+        #self.semaphore = asyncio.Semaphore(max_concurrency)
         kwargs['timeout'] = self.timeout_
         self._session = None
+        self.max_concurrency = max_concurrency
+        self._session_pool = {}
+        self._semaphore_pool = {}
         # super().__init__(headers=self.default_headers, *args, **kwargs)
 
-    async def _get_session(self, *args, **kwargs):
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(*args, **kwargs)
+    async def _get_session_and_semaphore(self):
+        loop = asyncio.get_event_loop()
+
+        # Get or create the session for the current event loop
+        if loop not in self._session_pool:
+            self._session_pool[loop] = aiohttp.ClientSession(timeout=self.timeout_)
+
+        # Get or create the semaphore for the current event loop
+        if loop not in self._semaphore_pool:
+            self._semaphore_pool[loop] = asyncio.Semaphore(self.max_concurrency)
+
+        return self._session_pool[loop], self._semaphore_pool[loop]
 
     async def close_aiohttp_session(self):
         """
@@ -259,14 +271,14 @@ class AsyncSession():
         asyncio.run(self.close_aiohttp_session())
 
     async def _async_get_post(self, url, expect_json=True, method="GET", proxy="", **kwargs):
-        async with self.semaphore:  # Limit concurrency
-            await self._get_session()
+        session, semaphore = await self._get_session_and_semaphore()
+
+        async with semaphore:  # Use thread-specific semaphore
             proxy = self.proxy_carousel.get_random_async_proxy()
             attempt = 0
-
             while attempt < self.retries:
                 try:
-                    async with self._session.request(method, url, proxy=proxy, **kwargs) as response:
+                    async with session.request(method, url, proxy=proxy, **kwargs) as response:
                         response.raise_for_status()  # Raise an exception for HTTP errors
 
                         # Validate response content type and check for JSON if expected
