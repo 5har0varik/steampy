@@ -258,7 +258,7 @@ class SteamClient:
     @login_required
     def get_trade_receipt(self, trade_id: str):
         html = self._session.safe_get(f'https://steamcommunity.com/trade/{trade_id}/receipt', expect_json=False).content.decode()
-        items = [json.loads(item) for item in texts_between(html, 'oItem = ', ';\r\n\toItem')]
+        items = [json.loads(item) for item in texts_between(html, 'oItem = ', ';\n\toItem')]
         return items
 
     @login_required

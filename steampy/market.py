@@ -276,7 +276,7 @@ class SteamMarket:
         response = self._session.safe_get("%s/market" % SteamUrl.COMMUNITY_URL, expect_json=False)
         if response.status_code != 200:
             raise ApiException("There was a problem getting the listings. http code: %s" % response.status_code)
-        assets_descriptions = json.loads(text_between(response.text, 'var g_rgAssets = ', ';\r\n'))
+        assets_descriptions = json.loads(text_between(response.text, 'var g_rgAssets = ', ';\n'))
         listing_id_to_assets_address = get_listing_id_to_assets_address_from_html(response.text)
         listings = get_market_listings_from_html(response.text)
         listings = merge_items_with_descriptions_from_listing(
