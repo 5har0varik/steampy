@@ -159,16 +159,18 @@ class SteamClient:
         return msg in response.text
 
     @login_required
-    def get_my_inventory(self, game: GameOptions, merge: bool = True, count: int = 5000, use_proxy=False) -> dict:
+    def get_my_inventory(self, game: GameOptions, merge: bool = True, count: int = 5000, start_assetid: int = 0,
+                         use_proxy=False) -> dict:
         steam_id = self.steam_guard['steamid']
-        return self.get_partner_inventory(steam_id, game, merge, count, use_proxy)
+        return self.get_partner_inventory(steam_id, game, merge, count, start_assetid, use_proxy)
 
     @login_required
     def get_partner_inventory(
-        self, partner_steam_id: str, game: GameOptions, merge: bool = True, count: int = 5000, use_proxy=False
+        self, partner_steam_id: str, game: GameOptions, merge: bool = True, count: int = 5000, start_assetid: int = 0,
+            use_proxy=False
     ) -> dict:
         url = '/'.join((SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id))
-        params = {'l': 'english', 'count': count}
+        params = {'l': 'english', 'count': count, 'start_assetid': start_assetid}
 
         response = self._session.safe_get(url, expect_json=True, use_proxy=use_proxy, params=params)
         response_dict = response.json()
